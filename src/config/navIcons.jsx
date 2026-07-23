@@ -236,3 +236,31 @@ export const UsersRolesIcon = () => (
     <path d="M16 3.13a4 4 0 0 1 0 7.75" />
   </Icon>
 );
+
+/* StorePlanningStudio — storefront with a blueprint grid overlay */
+export const StorePlanningStudioIcon = () => (
+  <Icon>
+    <path d="M3 9 5 3h14l2 6v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z" />
+    <path d="M9 9v12M15 9v12M3 15h18" />
+  </Icon>
+);
+
+/* NewStorePlanning — store outline with a plus badge */
+export const NewStorePlanningIcon = () => (
+  <Icon>
+    <path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z" />
+    <circle cx="12" cy="10" r="2.5" />
+    <path d="M19 3v4M17 5h4" strokeWidth={2} />
+  </Icon>
+);
+
+/* AgenticClusteringStudioIcon — CPU chip with cluster-node dots */
+export const AgenticClusteringStudioIcon = () => (
+  <Icon>
+    <rect x="7" y="7" width="10" height="10" rx="1.5" />
+    <path d="M7 9H5M7 12H4M7 15H5M17 9h2M17 12h3M17 15h2M9 7V5M12 7V4M15 7V5M9 17v2M12 17v3M15 17v2" />
+    <circle cx="10" cy="10" r="1" fill="currentColor" stroke="none" />
+    <circle cx="14" cy="10" r="1" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="14" r="1" fill="currentColor" stroke="none" />
+  </Icon>
+);

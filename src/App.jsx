@@ -27,7 +27,8 @@ import LeadTime from "./views/LeadTime.jsx";
 import PeerIntelligence from "./views/PeerIntelligence.jsx";
 import PlanningRules from "./views/PlanningRules.jsx";
 import UsersRoles from "./views/UsersRoles.jsx";
-
+import AgenticClustering from "./views/AgenticClustering.jsx";
+import NewStorePlanning from "./views/NewStorePlanning.jsx";
 /*
  * App root — renders the Login screen when no user is authenticated,
  * and the full MainLayout shell when a valid session exists.
@@ -60,8 +61,10 @@ const VIEWS = {
   clustering: ({ navigate }) => <Clustering onNavigate={navigate} />,
   "lead-time": () => <LeadTime />,
   "peer-intel": () => <PeerIntelligence />,
-  "planning-rules": () => <PlanningRules />,
-  "users-roles": () => <UsersRoles />,
+  "planning-rules":    () => <PlanningRules />,
+  "users-roles":       () => <UsersRoles />,
+  "agentic-clustering":  ({ navigate }) => <AgenticClustering onNavigate={navigate} />,
+  "new-store-planning":  ({ navigate }) => <NewStorePlanning onNavigate={navigate} />,
 };
 
 function AccessDenied() {

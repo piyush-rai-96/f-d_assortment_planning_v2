@@ -48,7 +48,7 @@ import {
   PRODUCTS, LOCATIONS, LOC_ATTRS, CORE_BG_OPTS, STATUS_OPTS, BAND_PCT,
   ATTR_GROUPS, PRODUCTS_BY_DEPT,
   ADMIN_WEEKS, ADMIN_DEPT_OPTS, ADMIN_SEASON_OPTS, PHASE_COLORS, DEPT_COLORS,
-  INITIAL_ASSORT_PERIODS,
+  INITIAL_ASSORT_PERIODS, NEW_STORE_IDS, NEW_STORE_INPUTS,
 } from "../data/admin.js";
 import "./PlanningAdmin.css";
 import { panelSx } from "../styles/panelSx.js";
@@ -111,6 +111,136 @@ function FieldLabel({ children }) {
   );
 }
 
+/* ── Confidence dots ─────────────────────────────────────────────────────── */
+const CONF_COLORS = { 5: "#059669", 4: "#0B7A6C", 3: "#D97706", 2: "#DC2626", 1: "#94a3b8" };
+function ConfidenceDots({ value, label }) {
+  const c = CONF_COLORS[value] || CONF_COLORS[3];
+  return (
+    <div className="pa-sir-conf">
+      <div className="pa-sir-conf-dots">
+        {[1,2,3,4,5].map((n) => (
+          <span key={n} className="pa-sir-dot" style={{ background: n <= value ? c : "var(--color-surface-sunken)" }} />
+        ))}
+      </div>
+      <span className="pa-sir-conf-label" style={{ color: c }}>{label}</span>
+    </div>
+  );
+}
+
+/* ── Store Input Record panel ────────────────────────────────────────────── */
+function StoreInputRecord({ storeId, storeName, onClose }) {
+  const data = NEW_STORE_INPUTS[storeId];
+  if (!data) return null;
+
+  // Group enriched attributes by category
+  const categories = [...new Set(data.enrichedAttributes.map((a) => a.category))];
+
+  return (
+    <div className="pa-sir-wrapper">
+      {/* Header */}
+      <div className="pa-sir-header">
+        <div className="pa-sir-header-left">
+          <div className="pa-sir-badge-new">⭐ New Store</div>
+          <div>
+            <div className="pa-sir-title">{storeName}</div>
+            <div className="pa-sir-subtitle">Store #{storeId} · Store Input Record · Cold-Start Profile</div>
+          </div>
+        </div>
+        <div className="pa-sir-header-right">
+          <div className="pa-sir-traceability-tag">
+            <span className="pa-sir-trace-dot" />
+            Full attribute traceability enabled
+          </div>
+          <button className="pa-sir-close" onClick={onClose}>✕ Close Record</button>
+        </div>
+      </div>
+
+      <div className="pa-sir-body">
+
+        {/* ── Section 1: F&D Known / Provided Information ─────────────────── */}
+        <div className="pa-sir-section-header">
+          <div className="pa-sir-section-tag pa-sir-tag-fd">F&amp;D Provided</div>
+          <span className="pa-sir-section-title">Known / Floor &amp; Decor–Provided Information</span>
+          <span className="pa-sir-section-note">Fields confirmed by internal real-estate and store-ops teams</span>
+        </div>
+
+        <div className="pa-sir-fd-grid">
+          {data.fdProvided.map((row) => (
+            <div key={row.label} className="pa-sir-fd-cell">
+              <div className="pa-sir-fd-label">{row.label}</div>
+              <div className="pa-sir-fd-value">{row.value}</div>
+              <div className="pa-sir-fd-source">
+                <span className="pa-sir-source-chip pa-sir-source-fd">F&amp;D Internal</span>
+                <ConfidenceDots value={5} label="Confirmed" />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Section 2: Externally Enriched Attributes ───────────────────── */}
+        <div className="pa-sir-section-header" style={{ marginTop: 24 }}>
+          <div className="pa-sir-section-tag pa-sir-tag-ext">External Data</div>
+          <span className="pa-sir-section-title">Externally Enriched Market Attributes</span>
+          <span className="pa-sir-section-note">Every field used in clustering or recommendation generation is fully traceable below</span>
+        </div>
+
+        <div className="pa-sir-table-wrap">
+          <table className="pa-sir-table">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Attribute</th>
+                <th>Value</th>
+                <th>Source</th>
+                <th>Provider</th>
+                <th>Data Freshness</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {categories.map((cat) => {
+                const rows = data.enrichedAttributes.filter((a) => a.category === cat);
+                return rows.map((row, i) => (
+                  <tr key={row.attribute} className={i === 0 ? "pa-sir-cat-first" : ""}>
+                    {i === 0 && (
+                      <td rowSpan={rows.length} className="pa-sir-cat-cell">
+                        <span className={`pa-sir-cat-badge pa-sir-cat-${cat.toLowerCase().replace(/\s+/g, "-")}`}>
+                          {cat}
+                        </span>
+                      </td>
+                    )}
+                    <td className="pa-sir-attr-name">{row.attribute}</td>
+                    <td className="pa-sir-attr-value"><strong>{row.value}</strong></td>
+                    <td>
+                      <span className="pa-sir-source-chip pa-sir-source-ext" title={row.source}>{row.source}</span>
+                    </td>
+                    <td><span className="pa-sir-provider">{row.provider}</span></td>
+                    <td>
+                      <span className="pa-sir-freshness">{row.freshness}</span>
+                    </td>
+                    <td>
+                      <ConfidenceDots value={row.confidence} label={row.confidenceLabel} />
+                    </td>
+                  </tr>
+                ));
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── Traceability footer ────────────────────────────────────────── */}
+        <div className="pa-sir-footer">
+          <span className="pa-sir-footer-icon">🔒</span>
+          <span>
+            All {data.enrichedAttributes.length} enriched attributes are fully traceable. No attribute used in clustering or assortment recommendations is hidden or implicitly derived.
+          </span>
+          <span className="pa-sir-footer-badge">Audit-ready</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────────────────────────────────── */
 function PlanningAdminInner() {
   /* ── Section / view state ─────────────────────────────────────────────── */
@@ -120,6 +250,7 @@ function PlanningAdminInner() {
   const [tab, setTab] = useState(0);
   const [prodAttrs, setProdAttrs] = useState({});
   const [locAttrs, setLocAttrs] = useState({});
+  const [selectedNewStore, setSelectedNewStore] = useState(null); // { id, name }
   const [exSearch, setExSearch] = useState("");
   const [exView, setExView] = useState("attr-store");
   const [attrStore, setAttrStore] = useState({});
@@ -220,16 +351,23 @@ function PlanningAdminInner() {
 
   /* ─────────────── LOCATIONS panel ────────────────────────────────────── */
   const locationRows = useMemo(
-    () => LOCATIONS.map((l) => {
-      const ov = locAttrs[l.id] || {};
-      const eff = {};
-      let changed = false;
-      LOC_ATTRS.forEach((a) => {
-        eff[a.key] = ov[a.key] !== undefined ? ov[a.key] : l.defaults[a.key];
-        if (ov[a.key] !== undefined && ov[a.key] !== l.defaults[a.key]) changed = true;
+    () => {
+      const rows = LOCATIONS.map((l) => {
+        const ov = locAttrs[l.id] || {};
+        const eff = {};
+        let changed = false;
+        LOC_ATTRS.forEach((a) => {
+          eff[a.key] = ov[a.key] !== undefined ? ov[a.key] : l.defaults[a.key];
+          if (ov[a.key] !== undefined && ov[a.key] !== l.defaults[a.key]) changed = true;
+        });
+        return { id: l.id, name: l.name, region: l.region, market: l.market, state: l.state, dc: l.dc, velocity: l.velocity, storeType: l.storeType || "Existing", bandPct: BAND_PCT[l.velocity] || "—", ...eff, _ov: changed };
       });
-      return { id: l.id, name: l.name, region: l.region, market: l.market, state: l.state, dc: l.dc, velocity: l.velocity, bandPct: BAND_PCT[l.velocity] || "—", ...eff, _ov: changed };
-    }),
+      // Pin new stores to the top so they're immediately visible
+      return [
+        ...rows.filter((r) => r.storeType === "New Store"),
+        ...rows.filter((r) => r.storeType !== "New Store"),
+      ];
+    },
     [locAttrs]
   );
   const locOvCount = locationRows.filter((r) => r._ov).length;
@@ -246,8 +384,37 @@ function PlanningAdminInner() {
     { field: "name", headerName: "Store Name", minWidth: 170, flex: 1 },
     { field: "region", headerName: "Region", width: 140 },
     { field: "market", headerName: "Market", width: 130 },
-    { field: "velocity", headerName: "Velocity", width: 100, cellStyle: (p) => ({ color: VEL_COLOR[p.value] || color.text, fontWeight: 700 }) },
-    { field: "bandPct", headerName: "Band %", width: 90 },
+    { field: "velocity", headerName: "Velocity", width: 100,
+      cellRenderer: (p) => {
+        if (p.data.storeType === "New Store") {
+          return <span style={{ color: "var(--color-text-subtle, #94a3b8)", fontSize: 13 }}>—</span>;
+        }
+        return <span style={{ color: VEL_COLOR[p.value] || color.text, fontWeight: 700 }}>{p.value}</span>;
+      },
+    },
+    { field: "bandPct", headerName: "Band %", width: 90,
+      cellRenderer: (p) => {
+        if (p.data.storeType === "New Store") {
+          return <span style={{ color: "var(--color-text-subtle, #94a3b8)", fontSize: 13 }}>—</span>;
+        }
+        return p.value;
+      },
+    },
+    /* ── Store Type ─────────────────────────────────────────────────────── */
+    { field: "storeType", headerName: "Store Type", width: 148, sortable: true,
+      cellRenderer: (p) => {
+        const isNew = p.value === "New Store";
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, height: "100%" }}>
+            {isNew ? (
+              <span className="pa-store-type-badge pa-store-type-new">New Store</span>
+            ) : (
+              <span className="pa-store-type-badge pa-store-type-existing">Existing</span>
+            )}
+          </div>
+        );
+      },
+    },
     ...LOC_ATTRS.map((a) => ({
       field: a.key, headerName: a.label, width: 150, editable: true,
       cellEditor: "agSelectCellEditor", cellEditorParams: { values: a.opts },
@@ -258,20 +425,79 @@ function PlanningAdminInner() {
     })),
   ], []);
 
+  const newStoreCount = LOCATIONS.filter((l) => l.storeType === "New Store").length;
+
   const locationsPanel = (
     <Stack direction="column" gap={3}>
       <Stack direction="row" justify="space-between" align="center" gap={3} wrap>
         <Stack direction="column" gap={0}>
           <Text variant="body-strong" tone="strong">Location Attributes</Text>
-          <Text variant="micro" tone="subtle">{LOCATIONS.length} stores · Defaults from cluster — edit cells to override</Text>
+          <Text variant="micro" tone="subtle">
+            {LOCATIONS.length} stores · {LOCATIONS.length - newStoreCount} existing · {newStoreCount} new (cold-start) · edit cells to override
+          </Text>
         </Stack>
         <Stack direction="row" gap={2} align="center">
+          {newStoreCount > 0 && (
+            <Badge variant="subtle" size="small" color="warning" label={`${newStoreCount} New Store${newStoreCount > 1 ? "s" : ""} — input records required`} />
+          )}
           {locOvCount ? <Badge variant="subtle" size="small" color="success" label={`${locOvCount} overridden`} /> : null}
           {locOvCount ? <Button variant="secondary" size="small" onClick={() => setLocAttrs({})}>Reset all</Button> : null}
         </Stack>
       </Stack>
-      <Table defaultColDef={{ floatingFilter: true }} cardContainer rowHeight="compact" tableHeader="Store master" columnDefs={locationColumns} rowData={locationRows} domLayout="autoHeight" hideTableSetting hideTableActions pagination={false} onCellValueChanged={onLocCellChanged} stopEditingWhenCellsLoseFocus />
-      <Text variant="micro" tone="subtle">{LOCATIONS.length} stores · {locOvCount} edited · synced from ERP / Store Master</Text>
+
+      {/* ── Cold-Start Banner: shown when new stores exist ─────────────── */}
+      {newStoreCount > 0 && (
+        <div className="pa-coldstart-banner">
+          <div className="pa-coldstart-banner-icon">❄</div>
+          <div className="pa-coldstart-banner-body">
+            <div className="pa-coldstart-banner-title">
+              {newStoreCount} New Store{newStoreCount > 1 ? "s" : ""} Detected — Cold-Start Input Required
+            </div>
+            <div className="pa-coldstart-banner-desc">
+              {locationRows.filter((r) => r.storeType === "New Store").map((r) => r.name).join(", ")} ·&nbsp;
+              No sales history · Performance metrics intentionally blank · <strong>Click any highlighted row</strong> to open the full Store Input Record with F&amp;D-provided and externally enriched attributes.
+            </div>
+          </div>
+          <div className="pa-coldstart-banner-badge">Pinned to Top ↑</div>
+        </div>
+      )}
+
+      <Table
+        defaultColDef={{ floatingFilter: true }}
+        cardContainer
+        rowHeight="compact"
+        tableHeader="Store master"
+        columnDefs={locationColumns}
+        rowData={locationRows}
+        domLayout="autoHeight"
+        hideTableSetting
+        hideTableActions
+        pagination={false}
+        onCellValueChanged={onLocCellChanged}
+        stopEditingWhenCellsLoseFocus
+        onRowClicked={(e) => {
+          if (e.data.storeType === "New Store" && NEW_STORE_INPUTS[e.data.id]) {
+            setSelectedNewStore({ id: e.data.id, name: e.data.name });
+          }
+        }}
+        rowClassRules={{
+          "pa-new-store-row": (p) => p.data?.storeType === "New Store",
+        }}
+      />
+
+      {/* ── Store Input Record ─────────────────────────────────────────── */}
+      {selectedNewStore && (
+        <StoreInputRecord
+          storeId={selectedNewStore.id}
+          storeName={selectedNewStore.name}
+          onClose={() => setSelectedNewStore(null)}
+        />
+      )}
+
+      <Text variant="micro" tone="subtle">
+        {LOCATIONS.length} stores · {locOvCount} edited · synced from ERP / Store Master ·{" "}
+        <em>Click a New Store row to open its full input record</em>
+      </Text>
     </Stack>
   );
 

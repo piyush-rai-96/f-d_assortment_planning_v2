@@ -30,24 +30,111 @@ const LOCTYPE_BY_REGION = { "Mid-South": "Suburban", Gulf: "Suburban", "Mid-Atla
 const FORMAT_BY_VELOCITY = { A: "Large Format", B: "Mid-Size", C: "Mid-Size", D: "Compact", E: "Compact" };
 export const BAND_PCT = { A: "5%", B: "15%", C: "60%", D: "15%", E: "5%" };
 
-/* Stores enriched with format + default editable attributes. */
-export const LOCATIONS = FD_STORES.map((s) => ({
-  id: String(s.id),
-  name: s.name,
-  region: s.region,
-  market: s.market,
-  state: s.state,
-  dc: s.dc,
-  velocity: s.velocity,
-  format: FORMAT_BY_VELOCITY[s.velocity] || "Mid-Size",
-  defaults: {
-    climate: CLIMATE_BY_REGION[s.region] || "Temperate",
-    customerType: CUSTOMER_BY_REGION[s.region] || "Mainstream",
-    storeFormat: FORMAT_BY_VELOCITY[s.velocity] || "Mid-Size",
-    installMix: MIX_BY_REGION[s.region] || "Mixed",
-    locationType: LOCTYPE_BY_REGION[s.region] || "Suburban",
+/* ─── New store openings (not yet in FD_STORES) ──────────────────────────── */
+const RAW_NEW_STORES = [
+  {
+    id: 381, name: "381 Billings", region: "Rockies", market: "Billings", state: "MT",
+    dc: 995, velocity: null, lat: 45.7833, lon: -108.5007,
+    sqft: 55000, openingDate: "SS26 — Aug 2026",
   },
-}));
+];
+
+/** Set of store IDs flagged as "New Store" — used by UI to gate cold-start warnings */
+export const NEW_STORE_IDS = new Set(RAW_NEW_STORES.map((s) => String(s.id)));
+
+/* Stores enriched with format + default editable attributes + storeType. */
+export const LOCATIONS = [
+  ...FD_STORES.map((s) => ({
+    id: String(s.id),
+    name: s.name,
+    region: s.region,
+    market: s.market,
+    state: s.state,
+    dc: s.dc,
+    velocity: s.velocity,
+    storeType: "Existing",
+    format: FORMAT_BY_VELOCITY[s.velocity] || "Mid-Size",
+    defaults: {
+      climate:      CLIMATE_BY_REGION[s.region]    || "Temperate",
+      customerType: CUSTOMER_BY_REGION[s.region]   || "Mainstream",
+      storeFormat:  FORMAT_BY_VELOCITY[s.velocity] || "Mid-Size",
+      installMix:   MIX_BY_REGION[s.region]        || "Mixed",
+      locationType: LOCTYPE_BY_REGION[s.region]    || "Suburban",
+    },
+  })),
+  ...RAW_NEW_STORES.map((s) => ({
+    id: String(s.id),
+    name: s.name,
+    region: s.region,
+    market: s.market,
+    state: s.state,
+    dc: s.dc,
+    lat: s.lat,
+    lon: s.lon,
+    sqft: s.sqft,
+    openingDate: s.openingDate,
+    velocity: "—",
+    storeType: "New Store",
+    format: "Smaller-footprint warehouse",
+    defaults: {
+      climate:      CLIMATE_BY_REGION[s.region]  || "Cold",
+      customerType: CUSTOMER_BY_REGION[s.region] || "Mainstream",
+      storeFormat:  "Compact",
+      installMix:   MIX_BY_REGION[s.region]      || "Mixed",
+      locationType: LOCTYPE_BY_REGION[s.region]  || "Strip Mall",
+    },
+  })),
+];
+
+/* ─── New Store Input Records ─────────────────────────────────────────────── *
+ * Full traceability record for each new-store opening.
+ * Each enriched attribute carries: value, source, provider, freshness date,
+ * confidence (1–5) and confidenceLabel.
+ * ─────────────────────────────────────────────────────────────────────────── */
+export const NEW_STORE_INPUTS = {
+  "381": {
+    fdProvided: [
+      { label: "Location",      value: "Billings, MT" },
+      { label: "Store Size",    value: "~55,000 sq ft" },
+      { label: "Store Format",  value: "Smaller-footprint warehouse" },
+      { label: "Store Status",  value: "New Store — Opening SS26" },
+      { label: "Sales History", value: "None (Zero-sales cold-start)" },
+    ],
+    enrichedAttributes: [
+      { category: "Demographics",  attribute: "Household Count (30-mi radius)",    value: "52,408",                        source: "US Census ACS 2023",      provider: "Census Bureau",   freshness: "Mar 2024",  confidence: 4, confidenceLabel: "High"      },
+      { category: "Demographics",  attribute: "Median Household Income",            value: "$58,142",                       source: "IRS Statistics of Income 2022", provider: "IRS",         freshness: "Dec 2023",  confidence: 4, confidenceLabel: "High"      },
+      { category: "Demographics",  attribute: "Median Home Value",                  value: "$287,500",                      source: "Zillow ZHVI Dec 2023",    provider: "Zillow",          freshness: "Jan 2024",  confidence: 5, confidenceLabel: "Very High" },
+      { category: "Demographics",  attribute: "% Older Homes (Pre-1980)",           value: "41.2%",                         source: "US Census ACS 2023",      provider: "Census Bureau",   freshness: "Mar 2024",  confidence: 4, confidenceLabel: "High"      },
+      { category: "Demographics",  attribute: "Homeownership Rate",                 value: "68.5%",                         source: "US Census ACS 2023",      provider: "Census Bureau",   freshness: "Mar 2024",  confidence: 4, confidenceLabel: "High"      },
+      { category: "Trade Area",    attribute: "Contractor Density",                 value: "1.4× National Average",         source: "ZBP 2022 (NAICS 238)",    provider: "Census Bureau",   freshness: "Feb 2024",  confidence: 3, confidenceLabel: "Moderate"  },
+      { category: "Trade Area",    attribute: "Competitive Density",                value: "Low — 1 competitor within 50 mi", source: "IBIS World / Google Maps", provider: "IBIS World",   freshness: "Apr 2024",  confidence: 3, confidenceLabel: "Moderate"  },
+      { category: "Trade Area",    attribute: "Regional / Rural Trade-Area Reach",  value: "~85 mi draw radius",            source: "F&D Site Evaluation",     provider: "F&D Internal",    freshness: "Jun 2026",  confidence: 5, confidenceLabel: "Very High" },
+      { category: "Climate",       attribute: "Climate Zone Indicator",             value: "Cold Continental (USDA Zone 4b)", source: "USDA Plant Hardiness 2023", provider: "USDA",         freshness: "Jan 2024",  confidence: 5, confidenceLabel: "Very High" },
+      { category: "Climate",       attribute: "FEMA National Risk Index",           value: "Moderate — 38 / 100",           source: "FEMA NRI 2023",           provider: "FEMA",            freshness: "Nov 2023",  confidence: 4, confidenceLabel: "High"      },
+    ],
+  },
+  "382": {
+    fdProvided: [
+      { label: "Location",      value: "Bozeman, MT" },
+      { label: "Store Size",    value: "~58,000 sq ft" },
+      { label: "Store Format",  value: "Smaller-footprint warehouse" },
+      { label: "Store Status",  value: "New Store — Opening FW26" },
+      { label: "Sales History", value: "None (Zero-sales cold-start)" },
+    ],
+    enrichedAttributes: [
+      { category: "Demographics",  attribute: "Household Count (30-mi radius)",    value: "38,114",                        source: "US Census ACS 2023",      provider: "Census Bureau",   freshness: "Mar 2024",  confidence: 4, confidenceLabel: "High"      },
+      { category: "Demographics",  attribute: "Median Household Income",            value: "$67,481",                       source: "IRS Statistics of Income 2022", provider: "IRS",         freshness: "Dec 2023",  confidence: 4, confidenceLabel: "High"      },
+      { category: "Demographics",  attribute: "Median Home Value",                  value: "$542,000",                      source: "Zillow ZHVI Dec 2023",    provider: "Zillow",          freshness: "Jan 2024",  confidence: 5, confidenceLabel: "Very High" },
+      { category: "Demographics",  attribute: "% Older Homes (Pre-1980)",           value: "29.4%",                         source: "US Census ACS 2023",      provider: "Census Bureau",   freshness: "Mar 2024",  confidence: 4, confidenceLabel: "High"      },
+      { category: "Demographics",  attribute: "Homeownership Rate",                 value: "54.2%",                         source: "US Census ACS 2023",      provider: "Census Bureau",   freshness: "Mar 2024",  confidence: 4, confidenceLabel: "High"      },
+      { category: "Trade Area",    attribute: "Contractor Density",                 value: "1.1× National Average",         source: "ZBP 2022 (NAICS 238)",    provider: "Census Bureau",   freshness: "Feb 2024",  confidence: 3, confidenceLabel: "Moderate"  },
+      { category: "Trade Area",    attribute: "Competitive Density",                value: "None within 100 mi",            source: "IBIS World / Google Maps", provider: "IBIS World",     freshness: "Apr 2024",  confidence: 4, confidenceLabel: "High"      },
+      { category: "Trade Area",    attribute: "Regional / Rural Trade-Area Reach",  value: "~110 mi draw radius",           source: "F&D Site Evaluation",     provider: "F&D Internal",    freshness: "Jun 2026",  confidence: 5, confidenceLabel: "Very High" },
+      { category: "Climate",       attribute: "Climate Zone Indicator",             value: "Cold Continental (USDA Zone 5a)", source: "USDA Plant Hardiness 2023", provider: "USDA",         freshness: "Jan 2024",  confidence: 5, confidenceLabel: "Very High" },
+      { category: "Climate",       attribute: "FEMA National Risk Index",           value: "Low — 22 / 100",                source: "FEMA NRI 2023",           provider: "FEMA",            freshness: "Nov 2023",  confidence: 4, confidenceLabel: "High"      },
+    ],
+  },
+};
 
 /* ── Products enriched (effective Core/BG + Status default from FD_SKUS) ──── */
 export const PRODUCTS = FD_SKUS.map((s) => ({

@@ -28,6 +28,9 @@ import {
   AssortIntelIcon,
   PlanningRulesIcon,
   UsersRolesIcon,
+  StorePlanningStudioIcon,
+  NewStorePlanningIcon,
+  AgenticClusteringStudioIcon,
 } from "./navIcons.jsx";
 
 /*
@@ -137,9 +140,21 @@ export const routes = [
       { value: "admin-planning",  label: "Planning Admin",      icon: <PlanningAdminIcon />, link: "/admin-planning"  },
       { value: "assort-periods",  label: "Define Assort Period", icon: <AssortPeriodsIcon />, link: "/assort-periods"  },
       { value: "periods",         label: "PLR Calendar",         icon: <CalendarIcon />,      link: "/periods",         hidden: true },
-      { value: "clustering",      label: "Location Clustering",  icon: <ClusteringIcon />,    link: "/clustering"      },
       { value: "planning-rules",  label: "Planning Rules",       icon: <PlanningRulesIcon />, link: "/planning-rules"  },
       { value: "users-roles",     label: "Users & Roles",        icon: <UsersRolesIcon />,    link: "/users-roles"     },
+    ],
+  },
+
+  /* ── Store Planning Studio ──────────────────────────────────────────────── */
+  {
+    value: "store-planning-studio",
+    label: "Store Planning Studio",
+    icon: <StorePlanningStudioIcon />,
+    link: "#store-planning-studio",
+    children: [
+      { value: "clustering",          label: "Location Clustering",      icon: <ClusteringIcon />,               link: "/clustering"          },
+      { value: "agentic-clustering", label: "Agentic Clustering Studio", icon: <AgenticClusteringStudioIcon />, link: "/agentic-clustering"  },
+      { value: "new-store-planning", label: "New Store Planning",        icon: <NewStorePlanningIcon />,        link: "/new-store-planning"  },
     ],
   },
 
@@ -223,6 +238,8 @@ export const MODULE_LABELS = {
   "assort-periods":         "Define Assort Period",
   periods:                  "PLR Calendar",
   clustering:               "Location Clustering",
+  "agentic-clustering":     "Agentic Clustering Studio",
+  "new-store-planning":     "New Store Planning",
   "lead-time":              "Lead Time & Oracle",
   "peer-intel":             "Peer Intelligence",
   "planning-rules":         "Planning Rules",
