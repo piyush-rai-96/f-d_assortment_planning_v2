@@ -154,7 +154,7 @@ export const routes = [
     children: [
       { value: "clustering",          label: "Location Clustering Old",  icon: <ClusteringIcon />,               link: "/clustering",          hidden: true },
       { value: "agentic-clustering", label: "Location Clustering",       icon: <AgenticClusteringStudioIcon />, link: "/agentic-clustering"  },
-      { value: "new-store-planning",     label: "New Store Planning",     icon: <NewStorePlanningIcon />, link: "/new-store-planning"     },
+      { value: "new-store-planning",     label: "New Store Planning",     icon: <NewStorePlanningIcon />, link: "/new-store-planning",     hidden: true },
       { value: "new-store-planning-new", label: "New Store Planning New", icon: <NewStorePlanningIcon />, link: "/new-store-planning-new" },
     ],
   },
