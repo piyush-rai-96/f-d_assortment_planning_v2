@@ -154,7 +154,8 @@ export const routes = [
     children: [
       { value: "clustering",          label: "Location Clustering Old",  icon: <ClusteringIcon />,               link: "/clustering",          hidden: true },
       { value: "agentic-clustering", label: "Location Clustering",       icon: <AgenticClusteringStudioIcon />, link: "/agentic-clustering"  },
-      { value: "new-store-planning", label: "New Store Planning",        icon: <NewStorePlanningIcon />,        link: "/new-store-planning"  },
+      { value: "new-store-planning",     label: "New Store Planning",     icon: <NewStorePlanningIcon />, link: "/new-store-planning"     },
+      { value: "new-store-planning-new", label: "New Store Planning New", icon: <NewStorePlanningIcon />, link: "/new-store-planning-new" },
     ],
   },
 
@@ -240,6 +241,7 @@ export const MODULE_LABELS = {
   clustering:               "Location Clustering Old",
   "agentic-clustering":     "Location Clustering",
   "new-store-planning":     "New Store Planning",
+  "new-store-planning-new": "New Store Planning New",
   "lead-time":              "Lead Time & Oracle",
   "peer-intel":             "Peer Intelligence",
   "planning-rules":         "Planning Rules",

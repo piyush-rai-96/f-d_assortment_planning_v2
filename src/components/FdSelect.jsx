@@ -20,9 +20,23 @@ export default function FdSelect({
   options,
   onChange,
   width = 220,
+  minWidth,
   isWithSearch = false,
   isMulti = false,
+  isWithSelectAll = false,
+  isClearable = false,
+  isWithSelectedOptionTags = false,
+  disabled = false,
 }) {
+  // Impact UI's <Select> renders at whatever `minWidth` it's given — it does not
+  // reliably expand to fill width="100%". So whenever we pass a numeric `width`
+  // (i.e. a fixed-size dropdown), minWidth must default to that SAME value,
+  // otherwise the Select collapses down to an arbitrary floor and truncates its
+  // label (this previously broke every fixed-width FdSelect across the app).
+  // Percentage / string widths (e.g. "100%" in the scope drawer) should fill
+  // their container instead, so we leave min-width unset there.
+  const isNumericWidth = typeof width === "number";
+  const resolvedMinWidth = minWidth ?? (isNumericWidth ? width : undefined);
   const findOption = (v) =>
     options.find((o) => String(o.value) === String(v)) || null;
 
@@ -78,15 +92,17 @@ export default function FdSelect({
 
   return (
     <div
-      className="fd-select-wrap"
-      style={{
-        flex: `1 1 ${Math.min(width, 160)}px`,
-        maxWidth: width,
-        minWidth: 120,
-      }}
+      className={`fd-select-wrap${disabled ? " fd-select-disabled" : ""}`}
+      aria-disabled={disabled || undefined}
+      style={
+        isNumericWidth
+          ? { width: `${width}px`, maxWidth: `${width}px`, minWidth: resolvedMinWidth }
+          : { width: "100%", maxWidth: width, minWidth: 120 }
+      }
     >
       <Select
         label={label}
+        isDisabled={disabled}
         labelOrientation="top"
         placeholder="Select…"
         isMulti={isMulti}
@@ -96,6 +112,7 @@ export default function FdSelect({
         setIsOpen={setIsOpen}
         withPortal
         width="100%"
+        minWidth={resolvedMinWidth !== undefined ? `${resolvedMinWidth}px` : undefined}
         initialOptions={options}
         currentOptions={currentOptions}
         setCurrentOptions={setCurrentOptions}
@@ -104,6 +121,9 @@ export default function FdSelect({
         handleChange={handleChange}
         isSelectAll={isSelectAll}
         setIsSelectAll={setIsSelectAll}
+        isWithSelectAll={isWithSelectAll}
+        isClearable={isClearable}
+        isWithSelectedOptionTags={isWithSelectedOptionTags}
         customPlaceholderAfterSelect={null}
       />
     </div>

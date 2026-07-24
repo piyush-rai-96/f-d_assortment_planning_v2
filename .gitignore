@@ -13,3 +13,4 @@ dist/
 # Editor
 .vscode/
 .idea/
+.gstack/

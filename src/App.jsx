@@ -29,6 +29,7 @@ import PlanningRules from "./views/PlanningRules.jsx";
 import UsersRoles from "./views/UsersRoles.jsx";
 import AgenticClustering from "./views/AgenticClustering.jsx";
 import NewStorePlanning from "./views/NewStorePlanning.jsx";
+import NewStorePlanningNew from "./views/NewStorePlanningNew.jsx";
 /*
  * App root — renders the Login screen when no user is authenticated,
  * and the full MainLayout shell when a valid session exists.
@@ -64,7 +65,8 @@ const VIEWS = {
   "planning-rules":    () => <PlanningRules />,
   "users-roles":       () => <UsersRoles />,
   "agentic-clustering":  ({ navigate }) => <AgenticClustering onNavigate={navigate} />,
-  "new-store-planning":  ({ navigate }) => <NewStorePlanning onNavigate={navigate} />,
+  "new-store-planning":      ({ navigate }) => <NewStorePlanning onNavigate={navigate} />,
+  "new-store-planning-new":  ({ navigate }) => <NewStorePlanningNew onNavigate={navigate} />,
 };
 
 function AccessDenied() {

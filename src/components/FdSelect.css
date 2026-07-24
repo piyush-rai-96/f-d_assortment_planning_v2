@@ -19,3 +19,10 @@
 .fd-select-wrap {
   overflow: visible;
 }
+
+/* Disabled state — block interaction + dim (belt-and-suspenders alongside isDisabled) */
+.fd-select-disabled {
+  pointer-events: none;
+  opacity: 0.55;
+  filter: grayscale(0.15);
+}
