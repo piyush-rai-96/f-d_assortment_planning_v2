@@ -867,9 +867,16 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .nsp-eng-summary-actions {
-  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 12px 20px;
   background: #fafbff;
+}
+.nsp-eng-summary-autoadvance {
+  display: flex; align-items: center; gap: 12px;
+}
+.nsp-eng-summary-autoadvance-txt {
+  font-size: 11.5px; font-weight: 600; color: #64748b;
+  white-space: nowrap;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -976,6 +983,7 @@
 .nsp-right-col-map .nsp-map-body {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 .nsp-right-col-map .nsp-usa-svg-v2 {
   width: 100%;
@@ -1224,6 +1232,7 @@
 .nsp-map-modal-body .nsp-map-body {
   flex: 1 1 0; min-height: 0; padding: 0;
   display: flex; flex-direction: column;
+  overflow: hidden;
 }
 .nsp-map-modal-body .nsp-usa-svg-v2 {
   flex: 1 1 0; width: 100%; height: 100%; min-height: unset;
@@ -1610,6 +1619,116 @@
   height: auto;
   min-height: 380px;
   display: block;
+}
+
+/* Authoritative Census/us-atlas map rendered with an Albers projection */
+.nsp-real-map,
+.nsp-real-map-body {
+  background: #e7f1f6;
+}
+.nsp-usa-svg-real {
+  shape-rendering: geometricPrecision;
+}
+.nsp-real-state {
+  fill: url("#realStateFill");
+  stroke: #aebdab;
+  stroke-width: 0.85;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  transition: fill .18s ease, stroke .18s ease;
+}
+.nsp-real-state:hover {
+  fill: #e8eee2;
+  stroke: #8fa08c;
+}
+.nsp-real-state-labels text {
+  fill: #70806f;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .35px;
+  pointer-events: none;
+  user-select: none;
+}
+.nsp-real-store-marker {
+  cursor: pointer;
+  outline: none;
+}
+.nsp-real-store-halo {
+  fill: rgba(79, 70, 229, .12);
+  transition: fill .16s ease, r .16s ease;
+}
+.nsp-real-store-core {
+  fill: #4f46e5;
+  stroke: #fff;
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+.nsp-real-store-marker:hover .nsp-real-store-halo,
+.nsp-real-store-marker:focus .nsp-real-store-halo {
+  fill: rgba(79, 70, 229, .23);
+  r: 10;
+}
+.nsp-real-store-hover-label {
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity .15s ease, transform .15s ease;
+  pointer-events: none;
+}
+.nsp-real-store-marker:hover .nsp-real-store-hover-label,
+.nsp-real-store-marker:focus .nsp-real-store-hover-label {
+  opacity: 1;
+  transform: translateY(0);
+}
+.nsp-real-store-hover-label rect {
+  fill: rgba(255, 255, 255, .96);
+  stroke: #d8deea;
+  stroke-width: .8;
+  filter: url("#realLabelShadow");
+}
+.nsp-real-store-hover-label text {
+  fill: #1e293b;
+  font-size: 8.5px;
+  font-weight: 700;
+}
+.nsp-real-catchment {
+  fill: rgba(245, 158, 11, .13);
+  stroke: rgba(217, 119, 6, .72);
+  stroke-width: 1.25;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  animation: nsp-real-catchment-breathe 2.8s ease-in-out infinite;
+}
+@keyframes nsp-real-catchment-breathe {
+  0%, 100% { fill-opacity: .65; stroke-opacity: .65; }
+  50% { fill-opacity: 1; stroke-opacity: 1; }
+}
+.nsp-real-new-halo {
+  fill: rgba(245, 158, 11, .22);
+}
+.nsp-real-new-core {
+  fill: #f59e0b;
+  stroke: #fff;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.nsp-real-new-label rect {
+  fill: rgba(255, 255, 255, .97);
+  stroke: rgba(217, 119, 6, .38);
+  stroke-width: .8;
+}
+.nsp-real-new-label text {
+  fill: #92400e;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .2px;
+}
+.nsp-real-new-label .nsp-real-new-sublabel {
+  fill: #b45309;
+  font-size: 6.5px;
+  font-weight: 700;
+  letter-spacing: .45px;
 }
 
 /* Catchment ring pulse */
@@ -3234,39 +3353,38 @@
   background: linear-gradient(to bottom, #c7d2fe, transparent);
 }
 
-/* Assortment stance option cards */
-.nsp-stance-group { display: flex; flex-direction: column; gap: 8px; }
-.nsp-stance-card {
-  width: 100%; text-align: left;
-  padding: 12px 14px; border-radius: 10px;
-  border: 1.5px solid #e2e8f0; background: #fafbff;
-  cursor: pointer; transition: all .13s;
+/* Scope preview — "Ready to Launch" summary card */
+.nsp-drawer-preview-section { padding-bottom: 26px; }
+.nsp-drawer-preview-card {
+  border: 1.5px solid #e2e8f0; border-radius: 12px;
+  background: linear-gradient(180deg, #fafbff, #f6f8ff);
+  padding: 4px 16px;
 }
-.nsp-stance-card:hover:not(.active) { border-color: #a5b4fc; background: #f5f7ff; }
-.nsp-stance-card.active { border-color: #6366f1; background: #f0f4ff; }
-.nsp-stance-card-top {
-  display: flex; align-items: center; gap: 9px; margin-bottom: 5px;
+.nsp-drawer-preview-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid #eef1f8;
 }
-.nsp-stance-radio {
-  width: 15px; height: 15px; border-radius: 50%; flex-shrink: 0;
-  border: 2px solid #cbd5e1; background: #fff; transition: all .13s;
+.nsp-drawer-preview-row:last-child { border-bottom: none; }
+.nsp-drawer-preview-lbl {
+  font-size: 11px; font-weight: 700; color: #94a3b8;
+  text-transform: uppercase; letter-spacing: .06em; flex-shrink: 0;
 }
-.nsp-stance-radio.checked {
-  border-color: #6366f1; background: #6366f1;
-  box-shadow: inset 0 0 0 3px #fff;
+.nsp-drawer-preview-val {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  justify-content: flex-end; text-align: right;
+  font-size: 12.5px; font-weight: 700; color: #0f172a;
 }
-.nsp-stance-card-label { font-size: 13px; font-weight: 700; color: #0f172a; }
-.nsp-stance-card.active .nsp-stance-card-label { color: #3730a3; }
-.nsp-stance-recommended {
-  margin-left: auto; font-size: 9.5px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .07em; color: #4f46e5; background: #eef2ff;
-  border: 1px solid #c7d2fe; border-radius: 4px; padding: 1px 7px;
+.nsp-drawer-preview-sep { color: #c7d2fe; flex-shrink: 0; }
+.nsp-drawer-preview-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #6366f1; flex-shrink: 0;
+  box-shadow: 0 0 0 3px rgba(99,102,241,.14);
 }
-.nsp-stance-card-desc {
-  font-size: 11.5px; color: #64748b; line-height: 1.55;
-  padding-left: 24px;
+.nsp-drawer-preview-auto {
+  margin-left: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: #4f46e5; background: #eef2ff;
+  border: 1px solid #c7d2fe; border-radius: 4px; padding: 2px 6px;
 }
-.nsp-stance-card.active .nsp-stance-card-desc { color: #4338ca; }
 
 /* Footer */
 .nsp-drawer-footer {
@@ -3279,6 +3397,15 @@
 /* ── Engine terminal wrapper ──────────────────────────────────────────────── */
 .nsp-eng-terminal-wrap {
   display: flex; flex-direction: column; gap: 16px;
+  transition: opacity .45s ease, transform .45s ease;
+}
+/* Plays for ~0.45s while the auto-advance timer fires onComplete() just
+   after, so the swap to the Tier 1 Line Plan feels like a handoff rather
+   than an abrupt cut. */
+.nsp-eng-collapsing {
+  opacity: 0;
+  transform: scale(.98) translateY(-8px);
+  pointer-events: none;
 }
 .nsp-eng-runner-wrap {
   padding: 0;
@@ -4331,3 +4458,80 @@
   }
   .nsp-cst-row-head { display: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MARKET CONTEXT — premium backend-hydration loader (auto after profile load)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.nsp-hydration-wrap { animation: nsp-fade-up .4s ease both; }
+.nsp-intel-load { display: flex; flex-direction: column; gap: 18px; }
+.nsp-intel-load-head { display: flex; align-items: flex-start; gap: 14px; }
+.nsp-intel-load-glyph {
+  position: relative; flex: none;
+  width: 44px; height: 44px; border-radius: 12px;
+  display: grid; place-items: center;
+  background: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%);
+  color: #fff; box-shadow: 0 6px 18px rgba(99,102,241,.35);
+}
+.nsp-intel-load-ring {
+  position: absolute; inset: -5px;
+  border-radius: 15px;
+  border: 2px solid transparent;
+  border-top-color: #a5b4fc; border-right-color: #c4b5fd;
+  animation: nsp-intel-spin 900ms linear infinite;
+}
+@keyframes nsp-intel-spin { to { transform: rotate(360deg); } }
+.nsp-intel-load-head-text { flex: 1; min-width: 0; }
+.nsp-intel-load-title-row { display: flex; align-items: center; gap: 10px; }
+.nsp-intel-load-title { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.01em; }
+.nsp-intel-load-desc {
+  margin: 4px 0 0; font-size: 12.5px; line-height: 1.55; color: #64748b; max-width: 720px;
+}
+.nsp-intel-load-desc strong { color: #4f46e5; font-weight: 600; }
+
+.nsp-intel-load-progress { margin-top: 2px; }
+/* Own label row (left name / right %) — keeps the ProgressBar label from
+   wrapping & shifting as the active source name changes length. */
+.nsp-intel-progress-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 8px;
+}
+.nsp-intel-progress-lbl {
+  font-size: 12.5px; font-weight: 600; color: #4f46e5;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.nsp-intel-progress-pct {
+  font-size: 12.5px; font-weight: 700; color: #0f172a;
+  font-variant-numeric: tabular-nums; flex: none;
+}
+/* Neutralize the Impact ProgressBar's own label + min-width so it fills the row */
+.nsp-intel-load-progress .progressbar_layout { min-width: 0; width: 100%; }
+.nsp-intel-load-progress .progressbar_label_container { display: none; }
+
+.nsp-intel-load-sources {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px;
+}
+.nsp-intel-src {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 14px; border-radius: 11px;
+  border: 1px solid #eef2f7; background: #fff;
+  transition: border-color .3s ease, background .3s ease, opacity .3s ease, transform .3s ease;
+}
+.nsp-intel-src.is-pending { opacity: .5; }
+.nsp-intel-src.is-active {
+  border-color: #c7d2fe; background: #f5f3ff;
+  box-shadow: 0 2px 10px rgba(99,102,241,.10);
+}
+.nsp-intel-src.is-done { border-color: #d1fae5; background: #f6fefb; }
+.nsp-intel-src-status {
+  flex: none; width: 24px; height: 24px; border-radius: 999px;
+  display: grid; place-items: center;
+}
+.nsp-intel-src.is-done .nsp-intel-src-status { background: #10b981; color: #fff; }
+.nsp-intel-src.is-active .nsp-intel-src-status { color: #6366f1; }
+.nsp-intel-src-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1;
+}
+.nsp-intel-src-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.nsp-intel-src-label { font-size: 12.5px; font-weight: 600; color: #1e293b; }
+.nsp-intel-src.is-done .nsp-intel-src-label { color: #0f172a; }
+.nsp-intel-src-detail { font-size: 11px; color: #94a3b8; }

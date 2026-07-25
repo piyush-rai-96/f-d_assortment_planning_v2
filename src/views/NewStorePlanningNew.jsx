@@ -8,21 +8,25 @@
  *  Step 4 → Review & Lock  (placeholder)
  */
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { geoAlbers, geoCircle, geoPath } from "d3-geo";
+import { feature } from "topojson-client";
+import usStatesTopology from "us-atlas/states-10m.json";
 import {
   ChevronDown, Zap, Globe, Wind, Store, Check,
   MapPin, Building2, Cpu, Activity, TrendingUp,
   ArrowRight, ArrowLeft, RotateCcw, Save, Lock, AlertTriangle, CheckCircle, ChevronRight,
-  Users, Map, Maximize2, X, FileText, Layers, Calendar, Target,
+  Users, Map as MapIcon, Maximize2, X, FileText, Layers, Calendar, Target,
   Minus, Plus, Sparkles, Undo2, Redo2, Download, Search, Flame,
   Grid3x3, CheckCheck, ShieldCheck, ClipboardList, FilePlus2, Home,
   ChevronUp, Clock, Trash2, FileDown,
   SlidersHorizontal, Filter, DollarSign, Ruler, Package, GitCompare,
 } from "lucide-react";
-import { Badge, Button, Card, EmptyState, Loader, Tabs, Tag, Tooltip, Modal, TextArea, Table } from "impact-ui";
+import { Badge, Button, Card, EmptyState, Loader, ProgressBar, Tabs, Tag, Tooltip, Modal, TextArea, Table } from "impact-ui";
 import FdSelect from "../components/FdSelect.jsx";
 import { panelSx } from "../styles/panelSx.js";
 import { LOCATIONS, NEW_STORE_INPUTS } from "../data/admin.js";
 import { FD_STORES } from "../data/stores.js";
+import { getStoreCoordinates, STORE_COORDINATES } from "../data/storeCoordinates.js";
 import { CLUSTERS_BY_RUN, STUDIO_RUN_HISTORY } from "../data/agenticClustering.js";
 import { SOLID_PREFINISHED_CANDIDATES, INSTALL_ATTACH_CONFIG } from "../data/newStoreSKUs.js";
 import "./NewStorePlanningNew.css";
@@ -83,6 +87,25 @@ const INTEL_LOGS = [
   { t: 7250, text: "✓  Greenfield territory — nearest F&D: Denver 370 mi",  type: "success" },
   { t: 7650, text: "Plotting 21 active stores + 1 new store on map…",       type: "info"    },
   { t: 8200, text: "✅  Market Intelligence complete — profile ready.",      type: "done"    },
+];
+
+// Sources hydrated during the "intel" load — used to render the premium
+// backend-hydration checklist that streams alongside the progress bar.
+const INTEL_SOURCES = [
+  { key: "catchment", label: "Market catchment · 30-mi radius", detail: "12 ZCTAs · Census TIGER/Line" },
+  { key: "demo",      label: "Demographics & households",       detail: "ACS 5-Year · IRS SOI"          },
+  { key: "climate",   label: "Climate & seasonality",           detail: "NOAA Normals 1991–2020"        },
+  { key: "demand",    label: "Demand potential model",          detail: "Remodel spend · permit growth" },
+  { key: "comp",      label: "Competitor insights",             detail: "50-mi trade-area scan"         },
+  { key: "network",   label: "Trade area & network map",        detail: "F&D proximity · store plot"    },
+];
+
+// Stage 1 of the same hydration sequence — the store record & F&D-provided specs.
+const STORE_SOURCES = [
+  { key: "record", label: "Store master record",         detail: "Store #, name, geo"        },
+  { key: "fd",     label: "F&D-provided specifications",  detail: "Format · size · opening"   },
+  { key: "attrs",  label: "Location & site attributes",   detail: "Region · market · status"  },
+  { key: "coords", label: "Geo coordinates",              detail: "Lat / Lon · catchment anchor" },
 ];
 
 // ─── USA SVG Map ──────────────────────────────────────────────────────────────
@@ -273,279 +296,228 @@ const STEP2_CALIB = [
   { t: 1900, text: "✓  Defaults calibrated — pre-filling constraint form."    },
 ];
 
-// ─── Map ───────────────────────────────────────────────────────────────────────
+// ─── Authoritative USA map ───────────────────────────────────────────────────
+// Geography: US Census-derived state boundaries packaged by `us-atlas`.
+// Projection: Albers equal-area projection fitted to the contiguous 48 states.
+// Store locations: src/data/storeCoordinates.js (replaceable without UI edits).
+const US_MAP_WIDTH = 960;
+const US_MAP_HEIGHT = 600;
+// Contiguous 48 + DC only. Overseas territories (AK/HI/PR/GU/AS/MP/VI) must stay
+// out of the fit — otherwise geoAlbers zooms way out and the lower 48 looks tiny.
+const CONTIGUOUS_STATE_NAMES = new Set([
+  "Alabama", "Arizona", "Arkansas", "California", "Colorado", "Connecticut",
+  "Delaware", "District of Columbia", "Florida", "Georgia", "Idaho", "Illinois",
+  "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland",
+  "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana",
+  "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York",
+  "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania",
+  "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah",
+  "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming",
+]);
+const US_STATE_ABBR = {
+  Alabama: "AL", Arizona: "AZ", Arkansas: "AR", California: "CA", Colorado: "CO",
+  Connecticut: "CT", Delaware: "DE", "District of Columbia": "DC", Florida: "FL",
+  Georgia: "GA", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA",
+  Kansas: "KS", Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD",
+  Massachusetts: "MA", Michigan: "MI", Minnesota: "MN", Mississippi: "MS",
+  Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV",
+  "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+  "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK",
+  Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC",
+  "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT",
+  Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI",
+  Wyoming: "WY",
+};
+const SMALL_STATE_LABELS = new Set(["CT", "DC", "DE", "MD", "MA", "NH", "NJ", "RI", "VT"]);
 
-// ─── USA Map v2 — real state outlines ─────────────────────────────────────────
-// 960×600 viewBox. project() converts lat/lon to screen coords.
-// All state boundary data defined as [lat, lon] arrays; projected at render time.
-
-const VW = 960, VH = 600;
-function project(lat, lon) {
-  return {
-    x: Math.round((lon + 125) / 59 * VW),
-    y: Math.round((50  - lat) / 26 * VH),
-  };
-}
-
-// Great Lakes — rendered as water fills for geographic realism
-const GREAT_LAKES = [
-  ["Superior", [[48.8,-91.8],[48.5,-89.5],[47.5,-87.5],[46.5,-84.5],[46.4,-84.8],[46.7,-85.5],[47.0,-87.0],[47.3,-88.5],[47.5,-90.0],[48.0,-91.5],[48.8,-91.8]]],
-  ["Michigan", [[45.8,-87.6],[44.5,-87.8],[43.5,-87.5],[42.5,-87.5],[42.0,-86.5],[41.8,-86.5],[41.8,-87.5],[42.5,-87.8],[44.0,-87.5],[45.0,-87.2],[45.8,-87.6]]],
-  ["Huron",    [[46.3,-84.5],[45.5,-83.0],[44.5,-82.0],[43.5,-82.0],[43.0,-82.5],[43.5,-83.5],[44.5,-83.5],[45.5,-84.0],[46.3,-84.5]]],
-  ["Erie",     [[42.8,-83.0],[42.5,-80.5],[42.1,-79.5],[41.5,-81.0],[41.8,-83.0],[42.8,-83.0]]],
-  ["Ontario",  [[44.2,-79.0],[43.8,-77.0],[43.5,-76.5],[43.8,-77.5],[43.8,-78.5],[44.2,-79.0]]],
-];
-
-// Simplified state boundary polygons — each is an array of [lat, lon] pairs
-const STATE_POLYS = [
-  // ── Northwest ──────────────────────────────────────────────────────────────
-  ["WA", [[49,-124.7],[49,-117],[47.5,-117],[46.4,-117],[45.6,-118],[45.6,-122],[47.3,-122.5],[48,-124.7]]],
-  ["OR", [[46.2,-124.1],[46.2,-116.5],[42,-116.5],[42,-124.6],[44,-124.5],[46.2,-124.1]]],
-  ["ID", [[49,-116],[49,-111],[44.5,-111],[42,-111],[42,-117],[44,-117],[46.4,-117],[47.5,-117]]],
-  ["MT", [[49,-116],[49,-104],[44.5,-104],[44.5,-111],[49,-116]]],
-  // ── Great Basin / Southwest ────────────────────────────────────────────────
-  ["NV", [[42,-120],[42,-114],[37,-114],[35,-114.6],[37.5,-117.5],[38.7,-119.5]]],
-  ["UT", [[42,-114],[42,-111],[41,-111],[41,-109],[37,-109],[37,-114]]],
-  ["CA", [[42,-124.4],[42,-120],[39.5,-120.0],[38.7,-119.5],[37.5,-117.5],[35,-114.6],[34.0,-114.6],[32.6,-114.7],[32.5,-117.1],[33.5,-118.3],[34,-118.5],[35.0,-120.5],[36.0,-121.8],[37.0,-122.5],[37.8,-122.5],[38.5,-123],[39.5,-124],[41,-124.2],[42,-124.4]]],
-  ["AZ", [[37,-114],[37,-109],[31.3,-109],[31.3,-111],[32,-111],[32.5,-114.8],[34,-114.6]]],
-  // ── Rockies / Plains ──────────────────────────────────────────────────────
-  ["WY", [[45,-111],[45,-104],[41,-104],[41,-111]]],
-  ["CO", [[41,-109],[41,-102],[37,-102],[37,-109]]],
-  ["NM", [[37,-109],[37,-103],[32,-103],[31.8,-106.6],[31.3,-108],[31.3,-109]]],
-  ["ND", [[49,-104],[49,-96.6],[46,-96.6],[46,-104]]],
-  ["SD", [[46,-104],[46,-96.4],[43,-96.4],[43,-104]]],
-  ["NE", [[43,-104],[43,-96],[40,-95.5],[40,-104]]],
-  ["KS", [[40,-102],[40,-94.6],[37,-94.6],[37,-102]]],
-  ["OK", [[37,-103],[37,-94.4],[33.6,-94.4],[33.6,-99],[34,-100],[36.5,-100],[36.5,-103]]],
-  ["TX", [[36.5,-103],[36.5,-100],[34,-100],[33.6,-94.4],[31.5,-93.7],[30.0,-93.5],[29.5,-93.5],[29.0,-94.1],[28.0,-97.0],[26.5,-97.4],[25.8,-97.4],[26.0,-99.2],[27.5,-100],[28.7,-104],[29.8,-104.7],[31.8,-106.6],[32,-103],[36.5,-103]]],
-  // ── Upper Midwest ──────────────────────────────────────────────────────────
-  ["MN", [[49,-97.2],[49,-89.5],[46.5,-92],[44,-92],[43.5,-93.3],[43.5,-96.5],[46.7,-96.8]]],
-  ["WI", [[46.9,-92],[46.5,-87],[45,-87.5],[42.5,-87.5],[42.5,-90.7],[43.5,-91.2],[45.5,-92]]],
-  ["MI", [[46.5,-90],[46,-84],[45.5,-83.5],[44.5,-83.5],[42,-84.4],[42,-86],[42.5,-87.5],[46.5,-87],[46.5,-90]]],
-  ["IA", [[43.5,-96.6],[43.5,-91.2],[40.4,-91.4],[40.6,-95.8]]],
-  ["IL", [[42.5,-87.5],[42.5,-90.7],[40.6,-91.5],[37,-89.2],[37.5,-88],[39,-87.5],[42.5,-87.5]]],
-  ["IN", [[41.8,-87.5],[41.8,-84.8],[38,-84.8],[37.8,-86.9],[41.8,-87.5]]],
-  ["OH", [[42,-84.8],[41.9,-80.5],[40.6,-80.5],[38.4,-81.6],[38.4,-84.8],[39,-84.8]]],
-  // ── South / Southeast ─────────────────────────────────────────────────────
-  ["MO", [[40.6,-95.8],[40.6,-91.7],[36.5,-89.5],[36.5,-94.6],[40,-94.6]]],
-  ["AR", [[36.5,-94.6],[36.5,-90.1],[33,-91.1],[33,-94]]],
-  ["LA", [[33,-94],[33,-91.1],[30,-90],[29,-89.2],[29,-90.5],[29.5,-93.9],[33,-94]]],
-  ["MS", [[35,-91.6],[35,-88],[31.5,-88.5],[30,-88.5],[30.2,-89.8],[30,-91.6],[35,-91.6]]],
-  ["AL", [[35,-88],[35,-85],[32,-85],[31,-85],[30.3,-87.6],[31,-88],[34,-88],[35,-88]]],
-  ["TN", [[36.7,-89.5],[36.7,-81.6],[35.8,-83.2],[35,-83.2],[35,-89.5],[36.7,-89.5]]],
-  ["KY", [[39.1,-84.8],[38.9,-81.9],[37.5,-82.5],[36.5,-83.7],[36.5,-89.5],[38.8,-88],[39.1,-84.8]]],
-  ["GA", [[35,-85.6],[35,-81],[34,-80.9],[32,-81],[30.4,-81.5],[30.4,-84.9],[32,-85.1],[34.5,-85.5],[35,-85.6]]],
-  ["FL", [[31,-87.6],[31,-84.9],[30.5,-83.0],[30.7,-81.7],[30.3,-81.3],[29.5,-81.1],[28.5,-80.8],[27.3,-80.3],[26.3,-80.1],[25.5,-80.2],[25.1,-80.4],[24.6,-81.6],[24.9,-82.2],[26.0,-82.0],[27.5,-82.7],[28.3,-82.6],[29.2,-83.2],[29.9,-84.6],[30.4,-87.6],[31,-87.6]]],
-  ["SC", [[35.2,-83.1],[35.2,-79],[33.5,-78.8],[32,-79.5],[32,-81],[34.5,-82.5],[35.2,-83.1]]],
-  ["NC", [[36.6,-84.3],[36.6,-75.5],[35.3,-75.5],[34,-77.5],[34.8,-79],[35.2,-83.1],[36,-84.3],[36.6,-84.3]]],
-  // ── Mid-Atlantic / Northeast ───────────────────────────────────────────────
-  ["VA", [[39.5,-80.5],[39.5,-75.2],[37.5,-76],[36.6,-76],[36.6,-80.3],[37.2,-82],[39.5,-80.5]]],
-  ["WV", [[40.6,-80.5],[39.5,-79.5],[37.4,-81],[37.2,-81.6],[38,-83],[38.8,-84.8],[40.6,-80.5]]],
-  ["MD", [[39.7,-79.5],[39.7,-75.2],[38.5,-75.2],[38.3,-75.8],[38.5,-77.5],[39.7,-79.5]]],
-  ["PA", [[42,-80.5],[42,-74.7],[40.5,-74.7],[39.7,-75.8],[40.6,-79.9],[42,-80.5]]],
-  ["NY", [[45,-74.7],[45,-71.5],[41.3,-72],[41,-74.7],[40.5,-74.7],[42,-74.7],[42,-80.5],[43,-79.7],[43.5,-76],[44,-76],[45,-74.7]]],
-  ["NJ", [[41.4,-74.7],[41.4,-73.9],[40.5,-74],[39.5,-74.3],[38.9,-75.5],[40.5,-75.6],[41.4,-74.7]]],
-  ["DE", [[39.8,-75.8],[39.8,-75],[38.5,-75],[38.5,-75.8],[39.8,-75.8]]],
-  ["CT", [[42,-73.7],[42,-71.8],[41,-71.8],[41,-73.7]]],
-  ["RI", [[42,-71.8],[42,-71.1],[41.3,-71.1],[41.3,-71.8]]],
-  ["MA", [[42.9,-73.5],[42.9,-70.8],[42.1,-70.1],[41.5,-70.5],[41.2,-71.2],[41.5,-73.5],[42.9,-73.5]]],
-  ["VT", [[45,-73.4],[45,-71.5],[43.6,-72.5],[42.8,-73.3],[45,-73.4]]],
-  ["NH", [[45.3,-71.1],[45.3,-70.6],[43.7,-70.8],[43.1,-72.6],[45,-72.5],[45.3,-71.1]]],
-  ["ME", [[47.5,-70.2],[47.5,-67.5],[44.8,-67],[43.6,-70.7],[45.3,-71.1],[46.5,-70.2],[47.5,-70.2]]],
-];
-
-// Build SVG polygon "d" attribute from a lat/lon point array
-function statePathD(pts) {
-  return pts.map((p, i) => {
-    const { x, y } = project(p[0], p[1]);
-    return `${i === 0 ? "M" : "L"} ${x},${y}`;
-  }).join(" ") + " Z";
-}
+const ALL_US_STATE_FEATURES = feature(
+  usStatesTopology,
+  usStatesTopology.objects.states,
+).features;
+const CONTIGUOUS_STATE_FEATURES = ALL_US_STATE_FEATURES.filter(
+  (state) => CONTIGUOUS_STATE_NAMES.has(state.properties?.name),
+);
+const CONTIGUOUS_STATES = {
+  type: "FeatureCollection",
+  features: CONTIGUOUS_STATE_FEATURES,
+};
+const US_PROJECTION = geoAlbers().fitExtent(
+  [[18, 18], [US_MAP_WIDTH - 18, US_MAP_HEIGHT - 18]],
+  CONTIGUOUS_STATES,
+);
+const US_PATH = geoPath(US_PROJECTION);
 
 function USAStoreMap({ newStore, allStores, hideHeader = false }) {
-  const newPos = newStore?.lat && newStore?.lon ? project(newStore.lat, newStore.lon) : null;
-  const dots   = allStores.filter(s => s.lat && s.lon).map(s => ({ ...s, ...project(s.lat, s.lon) }));
+  const storeMetaById = useMemo(
+    () => new Map(allStores.map((store) => [String(store.id), store])),
+    [allStores],
+  );
+
+  const dots = useMemo(
+    () => STORE_COORDINATES
+      .filter((coordinate) => coordinate.status === "existing")
+      .map((coordinate) => {
+        const position = US_PROJECTION([coordinate.longitude, coordinate.latitude]);
+        if (!position) return null;
+        const metadata = storeMetaById.get(String(coordinate.storeId));
+        return {
+          ...coordinate,
+          metadata,
+          x: position[0],
+          y: position[1],
+          label: metadata?.market || coordinate.storeName,
+        };
+      })
+      .filter(Boolean),
+    [storeMetaById],
+  );
+
+  const newCoordinate = getStoreCoordinates(newStore?.id);
+  const newProjected = newCoordinate
+    ? US_PROJECTION([newCoordinate.longitude, newCoordinate.latitude])
+    : null;
+  const newPos = newProjected ? { x: newProjected[0], y: newProjected[1] } : null;
+  const catchmentPath = newCoordinate
+    ? US_PATH(geoCircle()
+      .center([newCoordinate.longitude, newCoordinate.latitude])
+      .radius(30 / 69)
+      .precision(2)())
+    : null;
+  const verifiedCount = STORE_COORDINATES.filter(
+    (coordinate) => coordinate.status === "existing" && coordinate.accuracy === "verified",
+  ).length;
 
   return (
-    <div className="nsp-map-outer" style={{ borderRadius: hideHeader ? 0 : undefined }}>
-      {/* Top bar — hidden when embedded in the right panel (panel has its own header) */}
+    <div className="nsp-map-outer nsp-real-map" style={{ borderRadius: hideHeader ? 0 : undefined }}>
       {!hideHeader && (
-      <div className="nsp-map-topbar">
-          <span className="nsp-map-title-row"><MapPin size={13} /> F&D Network — Continental USA</span>
-        <div className="nsp-map-legend">
+        <div className="nsp-map-topbar">
+          <span className="nsp-map-title-row"><MapPin size={13} /> F&amp;D Network — Continental USA</span>
+          <div className="nsp-map-legend">
             <span className="nsp-legend-dot blue" /><span>{dots.length} Active stores</span>
             <span className="nsp-legend-dot amber" /><span>{newStore?.market}, {newStore?.state} · New · SS26</span>
+          </div>
         </div>
-      </div>
       )}
 
-      {/* Map body */}
-      <div className="nsp-map-body" style={{ padding: 0 }}>
-        <svg viewBox={`0 0 ${VW} ${VH}`} className="nsp-usa-svg-v2">
+      <div className="nsp-map-body nsp-real-map-body">
+        <svg
+          viewBox={`0 0 ${US_MAP_WIDTH} ${US_MAP_HEIGHT}`}
+          preserveAspectRatio="xMidYMid slice"
+          className="nsp-usa-svg-v2 nsp-usa-svg-real"
+          role="img"
+          aria-label={`Map of ${dots.length} active stores and new store ${newStore?.market}, ${newStore?.state}`}
+        >
+          <title>F&amp;D Store Network — Continental United States</title>
           <defs>
-            {/* Ocean/water background gradient */}
-            <linearGradient id="mapBgV2" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%"   stopColor="#d4e9f7" />
-              <stop offset="100%" stopColor="#cce4f4" />
+            <linearGradient id="realMapWater" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#eef7fb" />
+              <stop offset="100%" stopColor="#deedf5" />
             </linearGradient>
-            {/* State fill — soft sage-green geographic tint */}
-            <linearGradient id="stateFill" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%"   stopColor="#dde8d0" stopOpacity="0.92" />
-              <stop offset="100%" stopColor="#c8dbbf" stopOpacity="0.80" />
+            <linearGradient id="realStateFill" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#f3f6ef" />
+              <stop offset="100%" stopColor="#e2eadb" />
             </linearGradient>
-            {/* Western states slightly different tint (mountains) */}
-            <linearGradient id="stateFillWest" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%"   stopColor="#d4e0c8" stopOpacity="0.92" />
-              <stop offset="100%" stopColor="#bfd1b4" stopOpacity="0.80" />
-            </linearGradient>
-            {/* Great Lakes water */}
-            <linearGradient id="lakesFill" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%"   stopColor="#9dc8e8" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#7bb8e0" stopOpacity="0.85" />
-            </linearGradient>
-            {/* Drop shadow for states */}
-            <filter id="stateShadow" x="-5%" y="-5%" width="110%" height="115%">
-              <feDropShadow dx="0" dy="1.5" stdDeviation="2" floodColor="rgba(0,0,0,.10)" />
-            </filter>
-            {/* Store dot glow */}
-            <filter id="storeDotGlow" x="-100%" y="-100%" width="300%" height="300%">
+            <filter id="realStoreGlow" x="-150%" y="-150%" width="400%" height="400%">
               <feGaussianBlur stdDeviation="2.5" result="blur" />
-              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
             </filter>
-            {/* New store glow — warm amber */}
-            <filter id="newStoreGlow" x="-150%" y="-150%" width="400%" height="400%">
-              <feGaussianBlur stdDeviation="6" result="blur" />
-              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            <filter id="realNewStoreGlow" x="-200%" y="-200%" width="500%" height="500%">
+              <feGaussianBlur stdDeviation="5" result="blur" />
+              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
             </filter>
-            {/* Label shadow */}
-            <filter id="labelShadow">
-              <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="rgba(0,0,0,.12)" />
+            <filter id="realLabelShadow" x="-20%" y="-50%" width="140%" height="200%">
+              <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#334155" floodOpacity=".16" />
             </filter>
           </defs>
 
-          {/* Ocean / coastal water background */}
-          <rect width={VW} height={VH} fill="url(#mapBgV2)" rx="0" />
+          <rect width={US_MAP_WIDTH} height={US_MAP_HEIGHT} fill="url(#realMapWater)" />
 
-          {/* Subtle topographic grid */}
-          {[1,2,3,4,5,6,7].map(i => (
-            <line key={`h${i}`} x1="0" y1={i*86} x2={VW} y2={i*86}
-              stroke="rgba(255,255,255,.25)" strokeWidth="0.6" />
-          ))}
-          {[1,2,3,4,5,6,7,8,9,10,11].map(i => (
-            <line key={`v${i}`} x1={i*88} y1="0" x2={i*88} y2={VH}
-              stroke="rgba(255,255,255,.25)" strokeWidth="0.6" />
-          ))}
-
-          {/* State fills */}
-          {STATE_POLYS.map(([abbr, pts]) => {
-            const isWest = ["WA","OR","CA","ID","NV","UT","AZ","MT","WY","CO","NM"].includes(abbr);
-            return (
+          <g className="nsp-real-state-layer">
+            {CONTIGUOUS_STATE_FEATURES.map((state) => (
               <path
-                key={abbr}
-                d={statePathD(pts)}
-                fill={isWest ? "url(#stateFillWest)" : "url(#stateFill)"}
-                stroke="#a8bfa0"
-                strokeWidth="0.7"
-                strokeLinejoin="round"
-                filter="url(#stateShadow)"
-              />
-            );
-          })}
+                key={state.id}
+                d={US_PATH(state)}
+                className="nsp-real-state"
+              >
+                <title>{state.properties?.name}</title>
+              </path>
+            ))}
+          </g>
 
-          {/* Great Lakes — water fills for realism */}
-          {GREAT_LAKES.map(([name, pts]) => (
-            <path
-              key={`lake-${name}`}
-              d={statePathD(pts)}
-              fill="url(#lakesFill)"
-              stroke="#6aadd6"
-              strokeWidth="0.6"
-              strokeLinejoin="round"
-            />
-          ))}
+          <g className="nsp-real-state-labels" aria-hidden="true">
+            {CONTIGUOUS_STATE_FEATURES.map((state) => {
+              const abbreviation = US_STATE_ABBR[state.properties?.name];
+              if (!abbreviation || SMALL_STATE_LABELS.has(abbreviation)) return null;
+              const [x, y] = US_PATH.centroid(state);
+              if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+              return (
+                <text key={`state-label-${state.id}`} x={x} y={y + 3} textAnchor="middle">
+                  {abbreviation}
+                </text>
+              );
+            })}
+          </g>
 
-          {/* State abbreviation labels */}
-          {STATE_POLYS.map(([abbr, pts]) => {
-            const cx = Math.round(pts.reduce((s,p) => s + project(p[0],p[1]).x, 0) / pts.length);
-            const cy = Math.round(pts.reduce((s,p) => s + project(p[0],p[1]).y, 0) / pts.length);
-            return (
-              <text key={`lbl-${abbr}`} x={cx} y={cy+3} textAnchor="middle"
-                fill="rgba(40,70,30,.5)" fontSize="7.5" fontWeight="700" letterSpacing="0.4"
-                style={{ userSelect: "none", pointerEvents: "none" }}>
-                {abbr}
-              </text>
-            );
-          })}
+          <g className="nsp-real-store-layer">
+            {dots.map((store) => (
+              <g
+                key={store.storeId}
+                className="nsp-real-store-marker"
+                transform={`translate(${store.x} ${store.y})`}
+                tabIndex="0"
+                role="button"
+                aria-label={`Store ${store.storeId}, ${store.label}, ${store.state}`}
+              >
+                <title>#{store.storeId} {store.label}, {store.state}</title>
+                <circle className="nsp-real-store-halo" r="8" />
+                <circle className="nsp-real-store-core" r="3.7" filter="url(#realStoreGlow)" />
+                <g className="nsp-real-store-hover-label" aria-hidden="true">
+                  <rect x="8" y="-28" width="116" height="23" rx="6" />
+                  <text x="16" y="-13">#{store.storeId} {store.label}</text>
+                </g>
+              </g>
+            ))}
+          </g>
 
-          {/* Active store dots */}
-          {dots.map(s => (
-            <g key={s.id}>
-              <circle cx={s.x} cy={s.y} r={8} fill="rgba(79,70,229,.14)" />
-              <circle cx={s.x} cy={s.y} r={3.5} fill="#4f46e5" stroke="#fff" strokeWidth="1.5"
-                filter="url(#storeDotGlow)" />
-            </g>
-          ))}
-
-          {/* New store — premium amber highlight */}
           {newPos && (
-            <g>
-              {/* Outer catchment area fill */}
-              <circle cx={newPos.x} cy={newPos.y} r={54}
-                fill="rgba(251,191,36,.12)"
-                stroke="rgba(217,119,6,.4)" strokeWidth="1" strokeDasharray="6 3" />
-              {/* Animated expanding ring */}
-              <circle cx={newPos.x} cy={newPos.y} r={54}
-                fill="none" stroke="rgba(245,158,11,.55)" strokeWidth="1.5"
-                className="nsp-catchment-pulse" />
-              {/* Warm glow halo */}
-              <circle cx={newPos.x} cy={newPos.y} r={20}
-                fill="rgba(251,191,36,.28)" />
-              {/* Core dot */}
-              <circle cx={newPos.x} cy={newPos.y} r={9}
-                fill="#f59e0b" stroke="#fff" strokeWidth="2.5"
-                filter="url(#newStoreGlow)"
-                className="nsp-new-dot-pulse" />
-
-              {/* Label pill background */}
-              <rect
-                x={newPos.x - 62} y={newPos.y - 42}
-                width="124" height="26"
-                rx="6" ry="6"
-                fill="rgba(255,255,255,0.92)"
-                stroke="rgba(217,119,6,.35)" strokeWidth="0.8"
-                filter="url(#labelShadow)"
+            <g className="nsp-real-new-store">
+              {catchmentPath && <path d={catchmentPath} className="nsp-real-catchment" />}
+              <circle cx={newPos.x} cy={newPos.y} r="20" className="nsp-real-new-halo" />
+              <circle
+                cx={newPos.x}
+                cy={newPos.y}
+                r="9"
+                className="nsp-real-new-core nsp-new-dot-pulse"
+                filter="url(#realNewStoreGlow)"
               />
-              {/* City label */}
-              <text x={newPos.x} y={newPos.y - 24} textAnchor="middle"
-                fill="#92400e" fontSize="11.5" fontWeight="800" letterSpacing="0.3">
-                {newStore.market}, {newStore.state}
-              </text>
-              {/* Sub-label */}
-              <text x={newPos.x} y={newPos.y - 13} textAnchor="middle"
-                fill="#b45309" fontSize="7.5" fontWeight="600" letterSpacing="0.8">
-                NEW STORE · SS26 · 55 k sqft
-              </text>
-              {/* 30-mi label */}
-              <text x={newPos.x + 58} y={newPos.y + 4} textAnchor="start"
-                fill="rgba(180,83,9,.65)" fontSize="7" fontWeight="500">
-                30-mi catchment
-              </text>
+              <g
+                className="nsp-real-new-label"
+                transform={`translate(${newPos.x - 66} ${newPos.y - 48})`}
+                filter="url(#realLabelShadow)"
+              >
+                <rect width="132" height="30" rx="7" />
+                <text x="66" y="13" textAnchor="middle">{newStore.market}, {newStore.state}</text>
+                <text className="nsp-real-new-sublabel" x="66" y="23" textAnchor="middle">
+                  NEW STORE · SS26 · 30-MI CATCHMENT
+                </text>
+              </g>
             </g>
           )}
         </svg>
       </div>
 
-      {/* Footer — hidden when embedded in panel */}
       {!hideHeader && (
-      <div className="nsp-map-footer-bar">
+        <div className="nsp-map-footer-bar">
           <span className="nsp-map-footer-stat">
             <span className="nsp-legend-dot blue" />{dots.length} active stores
           </span>
           <span className="nsp-map-footer-stat">
             <span className="nsp-legend-dot amber" />{newStore?.market}, {newStore?.state} — New (SS26)
           </span>
-          <span className="nsp-map-footer-coords">Coordinates approximate · actuals pending survey</span>
-      </div>
+          <span className="nsp-map-footer-coords">
+            Coordinate registry · {verifiedCount} verified · {dots.length + 1 - verifiedCount} awaiting verification
+          </span>
+        </div>
       )}
     </div>
   );
@@ -1000,13 +972,29 @@ function computeWSSI(sku, { discounts, elasticity, baseDemand }) {
 
 // ─── Assortment Engine log builder ─────────────────────────────────────────────
 
-const STAGE_LABELS = {
-  15:  "Ingesting Context",
-  40:  "Matching Peers",
-  52:  "Fetching Forecast",
-  70:  "Fetching Guardrails",
-  100: "Line Plan Ready",
-};
+// Ordered low→high; label persists until the next threshold is crossed
+// (rather than snapping straight to "complete" whenever an exact stage
+// number isn't matched), so the header status text tracks the phase
+// the pipeline is actually working through at any given moment.
+const STAGE_THRESHOLDS = [
+  { min: 0,   label: "Initialising" },
+  { min: 2,   label: "Ingesting Store Context" },
+  { min: 17,  label: "Querying Cluster Registry" },
+  { min: 25,  label: "Matching Peers" },
+  { min: 49,  label: "Fetching Demand Forecast" },
+  { min: 65,  label: "Fetching Guardrails" },
+  { min: 79,  label: "Scoring SKUs" },
+  { min: 95,  label: "Finalising Plan" },
+  { min: 100, label: "Line Plan Ready" },
+];
+function getStageLabel(stage) {
+  let label = STAGE_THRESHOLDS[0].label;
+  for (const t of STAGE_THRESHOLDS) {
+    if (stage >= t.min) label = t.label;
+    else break;
+  }
+  return label;
+}
 
 function buildEngineLogs(sf) {
   const dept    = sf?.department    || "Hardwood Flooring";
@@ -1036,72 +1024,76 @@ function buildEngineLogs(sf) {
 
   return [
     // ── Header banner ──────────────────────────────────────────────── (0–0.3 s)
-    { t:    0, type: "header",   stage: 2,  text: `SMART ASSORTMENT ENGINE v3.2  ·  RUN ID: ${name}` },
-    { t:  180, type: "header2",  stage: 3,  text: `Scope: ${scopeLine}  |  Horizon: ${horizonLabel}  |  Stance: ${stanceLabel}` },
+    { t:    0, type: "header",   stage: 0,  text: `SMART ASSORTMENT ENGINE v3.2  ·  RUN ID: ${name}` },
+    { t:  300, type: "header2",  stage: 1,  text: `Scope: ${scopeLine}  |  Horizon: ${horizonLabel}  |  Stance: ${stanceLabel}` },
 
-    // ── Store context ─────────────────────────────────────────────── (0.5–2.8 s)
-    { t:  520, type: "info",     stage: 8,  text: "[Store-Context-Agent]  Ingesting location metadata & external enrichment…" },
-    { t:  600, type: "progress", stage: 8,  label: "Loading store context & catchment data", duration: 2600 },
-    { t:  920, type: "tree",     stage: 10, text: "├─  Store Profile      : Store #381  |  55,000 sq ft  |  Smaller-footprint warehouse" },
-    { t: 1220, type: "tree",     stage: 11, text: "├─  30-Mi Catchment    : 52,408 HH  |  $58.1k MHI  |  68.5% Owner-Occupied  |  41.2% Pre-1990 Housing" },
-    { t: 1580, type: "tree",     stage: 12, text: "├─  Trade Signals      : 1.4× Pro Contractor Index  |  34.6 Home-Center Density / 10k HH" },
-    { t: 1960, type: "tree",     stage: 15, text: "└─  NOAA Climate       : USDA Zone 4b (Cold Continental)  |  14°F Winter Low  |  Dry Winter Heating Season" },
+    // ── Store context ─────────────────────────────────────────────── (1.1–6.7 s)
+    { t: 1100, type: "info",     stage: 2,  text: "[Store-Context-Agent]  Ingesting location metadata & external enrichment…" },
+    { t: 1300, type: "progress", stage: 3,  label: "Loading store context & catchment data", duration: 2800 },
+    { t: 4550, type: "tree",     stage: 10, text: "├─  Store Profile      : Store #381  |  55,000 sq ft  |  Smaller-footprint warehouse" },
+    { t: 5250, type: "tree",     stage: 11, text: "├─  30-Mi Catchment    : 52,408 HH  |  $58.1k MHI  |  68.5% Owner-Occupied  |  41.2% Pre-1990 Housing" },
+    { t: 5950, type: "tree",     stage: 13, text: "├─  Trade Signals      : 1.4× Pro Contractor Index  |  34.6 Home-Center Density / 10k HH" },
+    { t: 6650, type: "tree",     stage: 15, text: "└─  NOAA Climate       : USDA Zone 4b (Cold Continental)  |  14°F Winter Low  |  Dry Winter Heating Season" },
 
-    // ── Cluster lookup + fallback ─────────────────────────────────── (3.0–4.2 s)
-    { t: 2960, type: "info",     stage: 18, text: `[Cluster-Service]  Searching saved pre-computed clusters for Scope: [${dept} → ${subLabel}]…` },
-    { t: 3040, type: "progress", stage: 18, label: "Querying global cluster registry", duration: 900 },
-    { t: 3480, type: "warn",     stage: 20, text: `⚠  NO SAVED CLUSTER FOUND for cold-start Store #381 in [${subLabel}]` },
-    { t: 3860, type: "info",     stage: 22, text: "⚡ FALLBACK TRIGGERED — Executing Dynamic Cold-Start Peer Selection Pipeline…" },
+    // ── Cluster lookup + fallback ─────────────────────────────────── (7.6–11.6 s)
+    { t: 7650, type: "info",     stage: 17, text: `[Cluster-Service]  Searching saved pre-computed clusters for Scope: [${dept} → ${subLabel}]…` },
+    { t: 7850, type: "progress", stage: 17, label: "Querying global cluster registry", duration: 1400 },
+    { t: 9950, type: "warn",     stage: 22, text: `⚠  NO SAVED CLUSTER FOUND for cold-start Store #381 in [${subLabel}]` },
+    { t:10650, type: "info",     stage: 23, text: "⚡ FALLBACK TRIGGERED — Executing Dynamic Cold-Start Peer Selection Pipeline…" },
 
-    // ── Peer matching ─────────────────────────────────────────────── (4.2–7.6 s)
-    { t: 4240, type: "divider",  stage: 25, text: "STEP 1 : MULTI-ATTRIBUTE PEER CLUSTERING & WEIGHTED SIMILARITY SCORE" },
-    { t: 4680, type: "info",     stage: 30, text: "[Peer-Matching-Engine]  Running multi-attribute similarity matrix across 380 active stores…" },
-    { t: 4760, type: "progress", stage: 30, label: "Computing weighted similarity scores  (380 stores × 4 lenses)", duration: 2600 },
-    { t: 5100, type: "tree",     stage: 33, text: "├─  Formula Weighting  : 38% Store Structure  +  42% Market Context  +  15% Category Signal  +  5pt Mountain Bonus" },
-    { t: 5480, type: "tree",     stage: 35, text: "├─  Tier 1A Structure  : Assigned → Family B  (Pacific West / Mountain)  [Sensitivity: Family E]" },
-    { t: 5820, type: "tree",     stage: 37, text: "└─  Tier 1B Market     : Assigned → M3 (Contractor-Rich / Home-Center Dense)" },
-    { t: 6080, type: "info",     stage: 38, text: "Dynamic Peer Pool Evaluated & Scored  (spatial distance excluded from scoring weight):" },
-    { t: 6340, type: "tree",     stage: 39, text: "├─  #159 Draper, UT         │ Score: 95.1  │ Primary Demand Anchor  (M3/B1)" },
-    { t: 6580, type: "tree",     stage: 40, text: "├─  #144 Reno, NV           │ Score: 90.8  │ Dry / Interior-West Comp  (Small Format)" },
-    { t: 6820, type: "tree",     stage: 41, text: "├─  #234 Salt Lake City, UT │ Score: 89.9  │ Mountain Urban Market Comp" },
-    { t: 7060, type: "tree",     stage: 42, text: "├─  #313 Beaverton, OR      │ Score: 87.2  │ PNW Small-Format Sensitivity" },
-    { t: 7280, type: "tree",     stage: 43, text: "└─  #200 Albuquerque, NM    │ Score: 76.2  │ High-Desert Climate Baseline" },
-    { t: 7620, type: "success",  stage: 45, text: `✓  Peer velocity benchmark: Avg 20.5 active selling SKUs  |  114.3 delivered units / yr  |  Elevated DOS ~1,169 days → restricting opening buy depth` },
+    // ── Peer matching ─────────────────────────────────────────────── (11.6–22.3 s)
+    { t:11650, type: "divider",  stage: 25, text: "STEP 1 : MULTI-ATTRIBUTE PEER CLUSTERING & WEIGHTED SIMILARITY SCORE" },
+    { t:12350, type: "info",     stage: 27, text: "[Peer-Matching-Engine]  Running multi-attribute similarity matrix across 380 active stores…" },
+    { t:12550, type: "progress", stage: 27, label: "Computing weighted similarity scores  (380 stores × 4 lenses)", duration: 3200 },
+    { t:16200, type: "tree",     stage: 35, text: "├─  Formula Weighting  : 38% Store Structure  +  42% Market Context  +  15% Category Signal  +  5pt Mountain Bonus" },
+    { t:16900, type: "tree",     stage: 37, text: "├─  Tier 1A Structure  : Assigned → Family B  (Pacific West / Mountain)  [Sensitivity: Family E]" },
+    { t:17600, type: "tree",     stage: 38, text: "└─  Tier 1B Market     : Assigned → M3 (Contractor-Rich / Home-Center Dense)" },
+    { t:18300, type: "info",     stage: 40, text: "Dynamic Peer Pool Evaluated & Scored  (spatial distance excluded from scoring weight):" },
+    { t:18750, type: "tree",     stage: 41, text: "├─  #159 Draper, UT         │ Score: 95.1  │ Primary Demand Anchor  (M3/B1)" },
+    { t:19200, type: "tree",     stage: 42, text: "├─  #144 Reno, NV           │ Score: 90.8  │ Dry / Interior-West Comp  (Small Format)" },
+    { t:19650, type: "tree",     stage: 43, text: "├─  #234 Salt Lake City, UT │ Score: 89.9  │ Mountain Urban Market Comp" },
+    { t:20100, type: "tree",     stage: 44, text: "├─  #313 Beaverton, OR      │ Score: 87.2  │ PNW Small-Format Sensitivity" },
+    { t:20550, type: "tree",     stage: 45, text: "└─  #200 Albuquerque, NM    │ Score: 76.2  │ High-Desert Climate Baseline" },
+    { t:21300, type: "success",  stage: 46, text: `✓  Peer velocity benchmark: Avg 20.5 active selling SKUs  |  114.3 delivered units / yr  |  Elevated DOS ~1,169 days → restricting opening buy depth` },
 
-    // ── Demand forecast ───────────────────────────────────────────── (8.0–10.3 s)
+    // ── Demand forecast ───────────────────────────────────────────── (22.3–28.9 s)
     // Logically sits right here: it needs the peer velocity benchmark just computed
     // above, and its output (a weekly demand curve) is what guardrail pacing and
     // SKU scoring both consume next — so it must run between the two.
-    { t: 7960, type: "divider",  stage: 46, text: "STEP 2 : DEMAND FORECAST FETCHING & SEASONAL CURVE GENERATION" },
-    { t: 8340, type: "info",     stage: 48, text: `[Demand-Forecast-Agent]  Fetching 26-week unit demand forecast for [${subLabel}] using peer-blended velocity + seasonal indices…` },
-    { t: 8420, type: "progress", stage: 48, label: "Generating weekly demand curve  (peer blend × climate seasonality × launch decay)", duration: 1800 },
-    { t: 8800, type: "tree",     stage: 50, text: "├─  Baseline Velocity  : R13 Peer-Blended Rate → 20.5 units/store/wk  (5-peer weighted average)" },
-    { t: 9160, type: "tree",     stage: 52, text: "├─  Seasonal Index     : Zone 4b Heating-Season Curve → Spring Peak +22%  |  Deep-Winter Trough −31%" },
-    { t: 9520, type: "tree",     stage: 53, text: "├─  Launch-Curve Overlay : New-Store Wk1–4 Novelty Spike ×1.35  → tapering to steady-state by Wk6" },
-    { t: 9880, type: "tree",     stage: 54, text: `└─  Forecast Horizon   : ${horizonLabel} → 26-Week Rolling Unit-Demand Curve Generated  (±14% Cold-Start Confidence Band)` },
-    { t:10260, type: "success",  stage: 55, text: "✓  Demand forecast fetched — weekly targets now feeding OTB pacing & SKU scoring below" },
+    { t:22300, type: "divider",  stage: 49, text: "STEP 2 : DEMAND FORECAST FETCHING & SEASONAL CURVE GENERATION" },
+    { t:23000, type: "info",     stage: 50, text: `[Demand-Forecast-Agent]  Fetching 26-week unit demand forecast for [${subLabel}] using peer-blended velocity + seasonal indices…` },
+    { t:23200, type: "progress", stage: 51, label: "Generating weekly demand curve  (peer blend × climate seasonality × launch decay)", duration: 2400 },
+    { t:26050, type: "tree",     stage: 57, text: "├─  Baseline Velocity  : R13 Peer-Blended Rate → 20.5 units/store/wk  (5-peer weighted average)" },
+    { t:26750, type: "tree",     stage: 58, text: "├─  Seasonal Index     : Zone 4b Heating-Season Curve → Spring Peak +22%  |  Deep-Winter Trough −31%" },
+    { t:27450, type: "tree",     stage: 60, text: "├─  Launch-Curve Overlay : New-Store Wk1–4 Novelty Spike ×1.35  → tapering to steady-state by Wk6" },
+    { t:28150, type: "tree",     stage: 61, text: `└─  Forecast Horizon   : ${horizonLabel} → 26-Week Rolling Unit-Demand Curve Generated  (±14% Cold-Start Confidence Band)` },
+    { t:28900, type: "success",  stage: 63, text: "✓  Demand forecast fetched — weekly targets now feeding OTB pacing & SKU scoring below" },
 
-    // ── Guardrails ────────────────────────────────────────────────── (10.7–13.3 s)
-    { t:10660, type: "divider",  stage: 56, text: "STEP 3 : FETCHING FINANCIAL CONSTRAINTS & SEASONAL GUARDRAILS" },
-    { t:11040, type: "info",     stage: 58, text: `[Guardrail-Agent]  Fetching enterprise constraints for Scope: [${dept} → ${subLabel}]  &  Horizon: [${horizonLabel}]…` },
-    { t:11120, type: "progress", stage: 58, label: "Fetching OTB caps, GM floors & supply chain rules from enterprise services", duration: 1000 },
-    { t:11580, type: "tree",     stage: 62, text: `├─  Open-To-Buy (OTB) Budget Cap  : $${(otbCap/1000).toFixed(0)}k  (Allocated for Opening)` },
-    { t:11940, type: "tree",     stage: 65, text: "├─  Target Gross Margin Floor     : 42.0% Min GM" },
-    { t:12260, type: "tree",     stage: 68, text: "├─  Space Allocation / POG        : 2 Bays  (Target 18–22 Active SKUs)" },
-    { t:12580, type: "tree",     stage: 70, text: "└─  Supply Chain Rules             : Vendor MOQ = 1 Pallet / SKU  |  Max Allowed DOS = 120 Days" },
+    // ── Guardrails ────────────────────────────────────────────────── (29.9–36.2 s)
+    { t:29900, type: "divider",  stage: 65, text: "STEP 3 : FETCHING FINANCIAL CONSTRAINTS & SEASONAL GUARDRAILS" },
+    { t:30600, type: "info",     stage: 67, text: `[Guardrail-Agent]  Fetching enterprise constraints for Scope: [${dept} → ${subLabel}]  &  Horizon: [${horizonLabel}]…` },
+    { t:30800, type: "progress", stage: 67, label: "Fetching OTB caps, GM floors & supply chain rules from enterprise services", duration: 1800 },
+    { t:33050, type: "tree",     stage: 72, text: `├─  Open-To-Buy (OTB) Budget Cap  : $${(otbCap/1000).toFixed(0)}k  (Allocated for Opening)` },
+    { t:33750, type: "tree",     stage: 74, text: "├─  Target Gross Margin Floor     : 42.0% Min GM" },
+    { t:34450, type: "tree",     stage: 75, text: "├─  Space Allocation / POG        : 2 Bays  (Target 18–22 Active SKUs)" },
+    { t:35150, type: "tree",     stage: 77, text: "└─  Supply Chain Rules             : Vendor MOQ = 1 Pallet / SKU  |  Max Allowed DOS = 120 Days" },
 
-    // ── SKU scoring ───────────────────────────────────────────────── (13.0–15.7 s)
-    { t:13020, type: "divider",  stage: 72, text: "STEP 4 : SKU SCORING, CLIMATE FILTERING & LINE ARCHITECTURE BUILD" },
-    { t:13460, type: "info",     stage: 75, text: `[SKU-Scorer]  Scoring ${candidateN} candidate SKUs against forecasted weekly demand for [${subLabel}]…` },
-    { t:13540, type: "progress", stage: 75, label: `Scoring ${candidateN} candidates  (forecast fit → climate → margin → bridge filters)`, duration: 900 },
-    { t:13900, type: "tree",     stage: 80, text: "├─  Filtered (Climate) : −18 SKUs excluded  (high-shrink solids vulnerable to Zone 4b dry winter)" },
-    { t:14320, type: "tree",     stage: 85, text: "├─  Filtered (Margin)  : −12 SKUs excluded  (items failing 42.0% GM floor)" },
-    { t:14700, type: "tree",     stage: 88, text: `└─  Ranked Candidates  : ${rankedN} SKUs selected under Stance [${stanceLabel}]  (target range ${stanceSkuRange})` },
-    { t:15180, type: "success",  stage: 93, text: "✓  [Attach-Engine]  Cross-category transition strip, reducer, T-moulding & underlayment needs dispatched to Accessories Module" },
-    { t:15700, type: "success",  stage: 97, text: `✓  Final opening assortment: ${rankedN} Active SKUs  ·  $${otbTotal.toLocaleString()} OTB (${otbPct}% of cap)  ·  Projected GM ${gmRate}%  ·  65% OTB reserved for Wk4/8/13 replenishment loop` },
+    // ── SKU scoring ───────────────────────────────────────────────── (36.2–42.6 s)
+    { t:36150, type: "divider",  stage: 79, text: "STEP 4 : SKU SCORING, CLIMATE FILTERING & LINE ARCHITECTURE BUILD" },
+    { t:36850, type: "info",     stage: 80, text: `[SKU-Scorer]  Scoring ${candidateN} candidate SKUs against forecasted weekly demand for [${subLabel}]…` },
+    { t:37050, type: "progress", stage: 81, label: `Scoring ${candidateN} candidates  (forecast fit → climate → margin → bridge filters)`, duration: 2000 },
+    { t:39500, type: "tree",     stage: 86, text: "├─  Filtered (Climate) : −18 SKUs excluded  (high-shrink solids vulnerable to Zone 4b dry winter)" },
+    { t:40200, type: "tree",     stage: 88, text: "├─  Filtered (Margin)  : −12 SKUs excluded  (items failing 42.0% GM floor)" },
+    { t:40900, type: "tree",     stage: 89, text: `└─  Ranked Candidates  : ${rankedN} SKUs selected under Stance [${stanceLabel}]  (target range ${stanceSkuRange})` },
+    { t:41700, type: "success",  stage: 91, text: "✓  [Attach-Engine]  Cross-category transition strip, reducer, T-moulding & underlayment needs dispatched to Accessories Module" },
+    { t:42550, type: "success",  stage: 93, text: `✓  Final opening assortment: ${rankedN} Active SKUs  ·  $${otbTotal.toLocaleString()} OTB (${otbPct}% of cap)  ·  Projected GM ${gmRate}%  ·  65% OTB reserved for Wk4/8/13 replenishment loop` },
 
-    // ── Done ──────────────────────────────────────────────────────── (16.5 s)
-    { t:16500, type: "done",     stage: 100, text: `✅  ASSORTMENT PLANNING ENGINE COMPLETE  ——  Pipeline Execution: 16.5 s` },
+    // ── Plan build ───────────────────────────────────────────────── (43.6–45.4 s)
+    { t:43550, type: "info",     stage: 95, text: `[Plan-Builder]  Loading Plan Name: "${name}"…` },
+    { t:43750, type: "progress", stage: 95, label: `Finalising plan record  →  "${name}"`, duration: 1600 },
+
+    // ── Done ──────────────────────────────────────────────────────── (45.9 s)
+    { t:45850, type: "done",     stage: 100, text: `✅  ASSORTMENT PLANNING ENGINE COMPLETE  ——  Pipeline Execution: 45.9 s` },
   ];
 }
 
@@ -1112,24 +1104,9 @@ const PLANNING_HORIZONS = [
   { value: "ss26_h2", label: "Weeks 27–52 (SS26 Second Half)" },
   { value: "fw26",    label: "Fall/Winter 2026 (FW26)" },
 ];
-const ASSORTMENT_STANCES = [
-  {
-    value:   "conservative",
-    label:   "Conservative",
-    desc:    "Tight SKU count (18–22 SKUs), proven peer movers only. Minimises inventory holding risk at opening.",
-  },
-  {
-    value:   "balanced",
-    label:   "Balanced",
-    desc:    "Optimal mix of proven core items plus targeted high-margin regional trend SKUs. Recommended for cold-start stores.",
-    recommended: true,
-  },
-  {
-    value:   "aggressive",
-    label:   "Aggressive",
-    desc:    "Maximised option breadth capturing full peer sales potential. Requires higher Open-To-Buy commitment.",
-  },
-];
+// Assortment stance is fixed to "balanced" — the recommended cold-start
+// approach — and surfaced read-only in the scope preview below.
+const BALANCED_STANCE_DESC = "Blends proven peer movers with targeted high-margin regional trend SKUs — the recommended approach for cold-start stores.";
 
 // Auto-generate scenario name from form fields (sub/cls may be arrays)
 function buildScenarioName(dept, sub, cls) {
@@ -1347,30 +1324,41 @@ function ScopeDrawer({ store, onClose, onLaunch }) {
               />
             </div>
 
-          {/* ── Assortment Stance ───────────────────────────────── */}
-          <div className="nsp-drawer-section">
+          {/* ── Scope Preview ────────────────────────────────────── */}
+          <div className="nsp-drawer-section nsp-drawer-preview-section">
             <div className="nsp-drawer-section-label">
-              <Target size={13} /> Assortment Stance
+              <Sparkles size={13} /> Ready to Launch
             </div>
-            <div className="nsp-stance-group">
-              {ASSORTMENT_STANCES.map(s => (
-          <button
-                  key={s.value}
-            type="button"
-                  className={`nsp-stance-card ${form.stance === s.value ? "active" : ""}`}
-                  onClick={() => set("stance", s.value)}
-                >
-                  <div className="nsp-stance-card-top">
-                    <div className={`nsp-stance-radio ${form.stance === s.value ? "checked" : ""}`} />
-                    <span className="nsp-stance-card-label">{s.label}</span>
-                    {s.recommended && (
-                      <span className="nsp-stance-recommended">Recommended</span>
-                    )}
-                  </div>
-                  <div className="nsp-stance-card-desc">{s.desc}</div>
-          </button>
-              ))}
-        </div>
+            <div className="nsp-drawer-preview-card">
+              <div className="nsp-drawer-preview-row">
+                <span className="nsp-drawer-preview-lbl">Scope</span>
+                <span className="nsp-drawer-preview-val">
+                  {form.department}
+                  <ChevronRight size={11} className="nsp-drawer-preview-sep" />
+                  {Array.isArray(form.subdepartment) ? form.subdepartment.join(", ") : form.subdepartment}
+                  {form.cls.length && form.cls[0] !== "All Classes" ? (
+                    <>
+                      <ChevronRight size={11} className="nsp-drawer-preview-sep" />
+                      {form.cls.join(", ")}
+                    </>
+                  ) : null}
+                </span>
+              </div>
+              <div className="nsp-drawer-preview-row">
+                <span className="nsp-drawer-preview-lbl">Horizon</span>
+                <span className="nsp-drawer-preview-val">
+                  {PLANNING_HORIZONS.find(h => h.value === form.horizon)?.label}
+                </span>
+              </div>
+              <div className="nsp-drawer-preview-row">
+                <span className="nsp-drawer-preview-lbl">Stance</span>
+                <span className="nsp-drawer-preview-val">
+                  <span className="nsp-drawer-preview-dot" /> Balanced
+                  <span className="nsp-drawer-preview-auto">Auto-applied</span>
+                </span>
+              </div>
+            </div>
+            <div className="nsp-drawer-hint">{BALANCED_STANCE_DESC}</div>
           </div>
 
         </div>{/* /nsp-drawer-body */}
@@ -1403,6 +1391,8 @@ function EngineTerminal({ scopeForm, onComplete }) {
   const [stageLabel, setStageLabel] = useState("Initialising");
   const [done, setDone]   = useState(false);
   const [cursor, setCursor] = useState(true);
+  const [countdown, setCountdown]   = useState(2);
+  const [collapsing, setCollapsing] = useState(false);
   const logEndRef = useRef(null);
   const timers    = useRef([]);
 
@@ -1428,7 +1418,7 @@ function EngineTerminal({ scopeForm, onComplete }) {
         setVisible(prev => [...prev, entry]);
         if (entry.stage !== undefined) {
           setProgress(entry.stage);
-          setStageLabel(STAGE_LABELS[entry.stage] || STAGE_LABELS[100]);
+          setStageLabel(getStageLabel(entry.stage));
         }
         if (i === allLogs.length - 1) {
           setTimeout(() => setDone(true), 900);
@@ -1451,6 +1441,32 @@ function EngineTerminal({ scopeForm, onComplete }) {
     return () => clearInterval(id);
   }, [done]);
 
+  // Once complete, count down 2s (shown in the summary card) then collapse
+  // the terminal and auto-advance — no click required. A user can still
+  // jump ahead early via "Continue Now".
+  useEffect(() => {
+    if (!done) return;
+    setCountdown(2);
+    const id = setInterval(() => {
+      setCountdown(c => {
+        if (c <= 1) { clearInterval(id); return 0; }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [done]);
+
+  useEffect(() => {
+    if (done && countdown === 0) setCollapsing(true);
+  }, [done, countdown]);
+
+  // Fire onComplete once the collapse transition has had time to play
+  useEffect(() => {
+    if (!collapsing) return;
+    const id = setTimeout(() => onComplete?.(), 480);
+    return () => clearTimeout(id);
+  }, [collapsing]);
+
   // Format ms since epoch as MM:SS.mmm (relative to start t=0)
   const startTime = useRef(Date.now());
   const formatTs = (t) => {
@@ -1461,7 +1477,7 @@ function EngineTerminal({ scopeForm, onComplete }) {
   };
 
   return (
-    <div className="nsp-eng-terminal-wrap nsp-fade-up">
+    <div className={`nsp-eng-terminal-wrap nsp-fade-up${collapsing ? " nsp-eng-collapsing" : ""}`}>
       <div className="nsp-terminal-panel">
         {/* ── Mac-style title bar ─── */}
         <div className="nsp-term-header">
@@ -1585,15 +1601,23 @@ function EngineTerminal({ scopeForm, onComplete }) {
             <Button variant="ghost" size="medium" icon={<Users size={14} />} iconPlacement="left">
               Inspect Peer Pool &amp; Weights
             </Button>
-            <Button
-              variant="primary"
-              size="medium"
-              icon={<ArrowRight size={14} />}
-              iconPlacement="right"
-              onClick={onComplete}
-            >
-              View Tier 1 Line Plan
-            </Button>
+            <div className="nsp-eng-summary-autoadvance">
+              <span className="nsp-eng-summary-autoadvance-txt">
+                {collapsing
+                  ? "Loading Tier 1 Line Plan…"
+                  : `Continuing automatically in ${countdown}s…`}
+              </span>
+              <Button
+                variant="primary"
+                size="medium"
+                icon={<ArrowRight size={14} />}
+                iconPlacement="right"
+                disabled={collapsing}
+                onClick={() => setCollapsing(true)}
+              >
+                Continue Now
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -3053,7 +3077,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
 
               <div className="nsp-recfg-panel">
                 <div className="nsp-recfg-panel-head">
-                  <span className="nsp-recfg-panel-title"><Map size={13} /> Override Cluster Region</span>
+                  <span className="nsp-recfg-panel-title"><MapIcon size={13} /> Override Cluster Region</span>
         </div>
                 <FdSelect
                   value={clusterCfg.region}
@@ -3669,25 +3693,94 @@ export default function NewStorePlanningNew({ onNavigate }) {
     setEngineState("landing");
     setActiveSnapshot(null);
     if (!selectedId) { setPhase("idle"); return; }
+    // Stage 1: load the store profile, then seamlessly continue into market-context hydration
     setPhase("loading");
-    timers.current.push(setTimeout(() => setPhase("idle"), 2400));
   }, [selectedId]);
 
-  useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs]);
+  // Unified hydration driver — the SAME progress engine powers both stages
+  // (store profile → market context) so the two loads feel like one sequence.
+  // Feels like streaming pre-computed data from the backend (not a live fetch).
+  useEffect(() => {
+    if (phase !== "loading" && phase !== "intel") return;
+    setProgress(0);
+    const DURATION = phase === "loading" ? 2000 : 4200;
+    const nextPhase = phase === "loading" ? "intel" : "results";
+    const gap = phase === "loading" ? 260 : 550;
+    const start = performance.now();
+    let raf;
+    const tick = (now) => {
+      const p = Math.min(100, Math.round(((now - start) / DURATION) * 100));
+      setProgress(p);
+      if (p < 100) { raf = requestAnimationFrame(tick); }
+      else { timers.current.push(setTimeout(() => setPhase(nextPhase), gap)); }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [phase]);
 
-  function activate() {
-    setPhase("running"); setLogs([]); setProgress(0);
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    const total = INTEL_LOGS[INTEL_LOGS.length - 1].t;
-    INTEL_LOGS.forEach(({ t, text, type }, idx) => {
-      timers.current.push(setTimeout(() => {
-        setLogs(prev => [...prev, { text, type }]);
-        setProgress(Math.round(((idx + 1) / INTEL_LOGS.length) * 100));
-      }, t));
-    });
-    timers.current.push(setTimeout(() => setPhase("results"), total + 800));
+  // Re-hydrate market context (used by the "Refresh" action on the results view)
+  function rerunIntel() {
+    setProgress(0);
+    setPhase("intel");
   }
+
+  // Shared premium hydration card — one visual language for both load stages
+  const renderHydration = ({ title, badge, desc, sources }) => {
+    const per       = 100 / sources.length;
+    const activeIdx = Math.min(sources.length - 1, Math.floor(progress / per));
+    const activeLbl = sources[activeIdx]?.label || "Finalizing";
+    return (
+      <Card sx={{
+        ...panelSx,
+        padding: "24px 28px 26px",
+        background: "linear-gradient(135deg, #f5f3ff 0%, #fafafe 42%, #fff 100%)",
+        borderLeft: "4px solid #6366f1",
+        boxShadow: "0 2px 18px rgba(99,102,241,.10)",
+      }}>
+        <div className="nsp-intel-load">
+          <div className="nsp-intel-load-head">
+            <div className="nsp-intel-load-glyph">
+              <span className="nsp-intel-load-ring" />
+              <Globe size={20} />
+            </div>
+            <div className="nsp-intel-load-head-text">
+              <div className="nsp-intel-load-title-row">
+                <span className="nsp-intel-load-title">{title}</span>
+                <Badge label={badge} color="info" variant="subtle" size="small" />
+              </div>
+              <p className="nsp-intel-load-desc">{desc}</p>
+            </div>
+          </div>
+
+          <div className="nsp-intel-load-progress">
+            <div className="nsp-intel-progress-row">
+              <span className="nsp-intel-progress-lbl">{progress >= 100 ? "Finalizing" : activeLbl}…</span>
+              <span className="nsp-intel-progress-pct">{progress}%</span>
+            </div>
+            <ProgressBar value={progress} showTime={false} status={progress >= 100 ? "completed" : "remaining"} />
+          </div>
+
+          <div className="nsp-intel-load-sources">
+            {sources.map((s, i) => {
+              const done   = progress >= (i + 1) * per;
+              const active = !done && i === activeIdx;
+              return (
+                <div key={s.key} className={`nsp-intel-src ${done ? "is-done" : active ? "is-active" : "is-pending"}`}>
+                  <span className="nsp-intel-src-status">
+                    {done ? <Check size={13} /> : active ? <Loader size="small" /> : <span className="nsp-intel-src-dot" />}
+                  </span>
+                  <span className="nsp-intel-src-text">
+                    <span className="nsp-intel-src-label">{s.label}</span>
+                    <span className="nsp-intel-src-detail">{s.detail}</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </Card>
+    );
+  };
 
   function handleLaunchEngine(form) {
     setScopeForm(form);
@@ -3878,16 +3971,18 @@ export default function NewStorePlanningNew({ onNavigate }) {
         </div>
       )}
 
-      {/* ── Loading skeleton — 2.4 s after store selection ───────────────── */}
+      {/* ── Stage 1: store-profile hydration (same visual language as Stage 2) ── */}
       {store && phase === "loading" && (
-        <div className="nsp-skeleton-wrap" key={`sk-${selectedId}`}>
-          <div className="nsp-sk-loader">
-            <Loader size="medium" />
-            <span className="nsp-sk-label">Loading store profile…</span>
-          </div>
-          <div className="nsp-sk-hero nsp-shimmer" />
-          <div className="nsp-sk-info nsp-shimmer" />
-          <div className="nsp-sk-agent nsp-shimmer" />
+        <div className="nsp-hydration-wrap" key={`sk-${selectedId}`}>
+          {renderHydration({
+            title: "Loading Store Profile",
+            badge: "Reading",
+            desc: (
+              <>Loading the store master record &amp; <strong>F&amp;D-provided specifications</strong> for{" "}
+              {store.market}, {store.state} — store attributes, format, size, opening window and geo coordinates.</>
+            ),
+            sources: STORE_SOURCES,
+          })}
         </div>
       )}
 
@@ -3967,86 +4062,16 @@ export default function NewStorePlanningNew({ onNavigate }) {
 
           {/* ── Agentic Panel ─────────────────────────────────────────────── */}
 
-          {phase === "idle" && (
-            <Card sx={{
-              ...panelSx,
-              padding: "22px 28px",
-              background: "linear-gradient(135deg, #f5f3ff 0%, #fafafe 40%, #fff 100%)",
-              borderLeft: "4px solid #6366f1",
-              boxShadow: "0 2px 16px rgba(99,102,241,.10)",
-            }}>
-              <div className="nsp-agent-bar">
-                {/* Icon */}
-                <div className="nsp-agent-bar-icon">
-                  <Globe size={22} />
-                </div>
-
-                {/* Text block */}
-                <div className="nsp-agent-bar-text">
-                  <div className="nsp-agent-bar-title-row">
-                    <span className="nsp-agent-bar-title">Market Intelligence Agent</span>
-                    <Badge label="Ready" color="success" variant="subtle" size="small" />
-                </div>
-                  <span className="nsp-agent-bar-desc">
-                    Pulling <strong>6 external sources</strong> for {store.market}, {store.state} —
-                    market catchment · climate · competitor scan · demographics · trade area · network map
-                  </span>
-                </div>
-
-                {/* Divider */}
-                <div className="nsp-agent-bar-divider" />
-
-                {/* CTA */}
-                <div className="nsp-agent-bar-cta">
-                  <Button
-                    variant="primary"
-                    size="large"
-                    icon={<Zap size={16} />}
-                    iconPlacement="left"
-                    onClick={activate}
-                  >
-                    Run Intelligence
-                  </Button>
-                  <span className="nsp-agent-bar-footnote">~8 sec · 6 sources · no manual steps</span>
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {phase === "running" && (
-            <div className="nsp-terminal-panel">
-              {/* Header bar */}
-              <div className="nsp-term-header">
-                <div className="nsp-term-dots">
-                  <span className="nsp-term-dot red" />
-                  <span className="nsp-term-dot yellow" />
-                  <span className="nsp-term-dot green" />
-                </div>
-                <div className="nsp-term-header-title">
-                  <span className="nsp-term-pulse-dot" />
-                  market-intel-agent — {store.market}, {store.state}
-                </div>
-                <div className="nsp-term-progress-wrap">
-                  <div className="nsp-term-progress-bar" style={{ width: `${progress}%` }} />
-                </div>
-                <div className="nsp-term-pct">{progress}%</div>
-              </div>
-              {/* Log body */}
-              <div className="nsp-term-body">
-                <div className="nsp-term-scanline" />
-                {logs.map((l, i) => (
-                  <div key={i} className={`nsp-tlog nsp-tlog-${l.type}`}>
-                    <span className="nsp-tlog-pfx">
-                      {l.type === "success" ? "✓" : l.type === "warn" ? "⚠" : l.type === "done" ? "✅" : "›"}
-                    </span>
-                    <span className="nsp-tlog-text">{l.text}</span>
-                  </div>
-                ))}
-                <span className="nsp-term-blink-cursor">▋</span>
-                <div ref={logEndRef} />
-              </div>
-            </div>
-          )}
+          {phase === "intel" && renderHydration({
+            title: "Loading Market Context",
+            badge: "Hydrating",
+            desc: (
+              <>Loading external market context for the <strong>30-mile catchment area</strong> around{" "}
+              {store.market}, {store.state} — including market catchment, demographics, climate,
+              demand potential, and competitor insights.</>
+            ),
+            sources: INTEL_SOURCES,
+          })}
 
           {phase === "results" && intel && (
             <div className="nsp-results-wrap">
@@ -4058,7 +4083,7 @@ export default function NewStorePlanningNew({ onNavigate }) {
                   <span>Agent complete · all data sources populated</span>
                   <span className="nsp-done-tag">market-intel-agent</span>
                 </div>
-                <button className="nsp-rerun-btn" onClick={activate}>↺ Re-run</button>
+                <button className="nsp-rerun-btn" onClick={rerunIntel}>↺ Refresh</button>
               </div>
 
               {/* ══ TWO-COLUMN BODY — left intel / right map ══════════════ */}
@@ -4154,7 +4179,7 @@ export default function NewStorePlanningNew({ onNavigate }) {
                     <div className="nsp-map-ph-right">
                       <div className="nsp-map-legend">
                         <span className="nsp-legend-dot blue" />
-                        <span>{FD_STORES.filter(s => s.lat && s.lon).length} stores</span>
+                        <span>{STORE_COORDINATES.filter(s => s.status === "existing").length} stores</span>
                         <span className="nsp-legend-dot amber" />
                         <span>{store.market} · New</span>
                     </div>
@@ -4260,7 +4285,7 @@ export default function NewStorePlanningNew({ onNavigate }) {
                       <div className="nsp-map-ph-left">
                         <MapPin size={14} />
                         <span>F&D Store Network — Continental USA</span>
-                        <Badge label={`${FD_STORES.filter(s => s.lat && s.lon).length} Active + 1 New`} color="default" variant="stroke" size="small" />
+                        <Badge label={`${STORE_COORDINATES.filter(s => s.status === "existing").length} Active + 1 New`} color="default" variant="stroke" size="small" />
                       </div>
                       <Button
                         variant="ghost"
