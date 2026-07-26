@@ -154,8 +154,9 @@ export const routes = [
     children: [
       { value: "clustering",          label: "Location Clustering Old",  icon: <ClusteringIcon />,               link: "/clustering",          hidden: true },
       { value: "agentic-clustering", label: "Location Clustering",       icon: <AgenticClusteringStudioIcon />, link: "/agentic-clustering"  },
-      { value: "new-store-planning",     label: "New Store Planning",     icon: <NewStorePlanningIcon />, link: "/new-store-planning" },
+      { value: "new-store-planning",     label: "New Store Planning",     icon: <NewStorePlanningIcon />, link: "/new-store-planning", hidden: true },
       { value: "new-store-planning-new", label: "New Store Planning New", icon: <NewStorePlanningIcon />, link: "/new-store-planning-new" },
+      { value: "existing-store-reco",    label: "Existing Store Reco",    icon: <NewStorePlanningIcon />, link: "/existing-store-reco" },
     ],
   },
 
@@ -242,6 +243,7 @@ export const MODULE_LABELS = {
   "agentic-clustering":     "Location Clustering",
   "new-store-planning":     "New Store Planning",
   "new-store-planning-new": "New Store Planning New",
+  "existing-store-reco":    "Existing Store Reco",
   "lead-time":              "Lead Time & Oracle",
   "peer-intel":             "Peer Intelligence",
   "planning-rules":         "Planning Rules",

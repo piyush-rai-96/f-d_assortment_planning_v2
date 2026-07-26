@@ -16,7 +16,7 @@ import {
   MapPin, Building2, Cpu, Activity, TrendingUp,
   ArrowRight, ArrowLeft, RotateCcw, Save, Lock, AlertTriangle, CheckCircle, ChevronRight,
   Users, Map as MapIcon, Maximize2, X, FileText, Layers, Calendar, Target,
-  Plus, Sparkles, Undo2, Redo2, Download, Search, Flame,
+  Plus, Minus, ArrowUp, ArrowDown, Sparkles, Undo2, Redo2, Download, Search, Flame,
   Grid3x3, CheckCheck, ShieldCheck, ClipboardList, FilePlus2, Home, LayoutDashboard,
   ChevronUp, ChevronLeft, Clock, Trash2, FileDown,
   SlidersHorizontal, Filter, DollarSign, Ruler, Package, GitCompare,
@@ -855,6 +855,109 @@ function computeST(sku) {
 function isMandatory(sku) {
   return sku.lifecycle === "Core" && sku.peerVelocity >= 100;
 }
+
+// ─── Existing Store Reco insight layer ─────────────────────────────────────────
+// Powers the three decision-support columns shown only on the Existing Store Reco
+// screen. Everything is derived deterministically from the candidate attributes so
+// the same SKU always yields the same recommendation, score and demand mix.
+
+const clamp100 = (v) => Math.max(0, Math.min(100, v));
+
+// Add / Keep / Drop action for an existing-store assortment review.
+//   • End-of-life or weak scorers  → Drop
+//   • Net-new introductions (NPI)  → Add
+//   • Proven carryover (Core/etc.) → Keep
+function computeExistingReco(sku, score) {
+  if (sku.lifecycle === "Clearance") return "drop";
+  if (score < 45) return "drop";
+  if (sku.lifecycle === "NPI") return "add";
+  return "keep";
+}
+
+// Configurable weighting for the composite Explainability Score. Tune here.
+const EXPLAINABILITY_WEIGHTS = {
+  salesPotential:     0.30,
+  marginContribution: 0.40,
+  marketPotential:    0.20,
+  strategicFit:       0.10,
+};
+
+// Composite recommendation-confidence score (0–100) plus a transparent
+// per-KPI contribution breakdown for the hover tooltip.
+function computeExplainability(sku) {
+  const salesPotential     = clamp100(sku.st ?? computeST(sku));
+  const marginContribution = clamp100(((sku.margin - 0.40) / 0.25) * 100);
+  const marketPotential    = clamp100(sku.mktPotential ?? computeMktPotential(sku));
+  const strategicFit       = clamp100(
+    0.6 * (sku.climateFit * 100)
+    + (isMandatory(sku) ? 25 : 0)
+    + (sku.lifecycle === "Core" ? 15 : sku.lifecycle === "NPI" ? 8 : 0)
+  );
+  const W = EXPLAINABILITY_WEIGHTS;
+  const parts = [
+    { key: "sales",     label: "Sales Potential",     hint: "expected sell-through",        weight: W.salesPotential,     value: Math.round(salesPotential) },
+    { key: "margin",    label: "Margin Contribution", hint: "gross-margin headroom",         weight: W.marginContribution, value: Math.round(marginContribution) },
+    { key: "market",    label: "Market Potential",    hint: "cold-start demand index",       weight: W.marketPotential,    value: Math.round(marketPotential) },
+    { key: "strategic", label: "Strategic Fit",       hint: "climate · mandate · lifecycle", weight: W.strategicFit,       value: Math.round(strategicFit) },
+  ].map((p) => ({ ...p, contribution: Math.round(p.weight * p.value) }));
+  const score = clamp100(Math.round(parts.reduce((s, p) => s + p.weight * p.value, 0)));
+  return { score, parts };
+}
+
+// Expected Pro/Contractor vs DIY demand split (%). Rustic/wirebrushed, wider
+// planks and core carry skew contractor; smooth/gloss skews DIY.
+function computeProMix(sku) {
+  let pro = 48;
+  const finish = (sku.finish || "").toLowerCase();
+  if (finish.includes("wirebrushed"))  pro += 16;
+  if (finish.includes("hand-scraped")) pro += 12;
+  if (finish.includes("distressed"))   pro += 10;
+  if (finish.includes("smooth"))       pro -= 10;
+  if (finish.includes("gloss"))        pro -= 14;
+  if (finish.includes("matte"))        pro += 2;
+  const widthNum = parseFloat(String(sku.width).replace(/[^0-9.]/g, "")) || 0;
+  if (widthNum >= 7)      pro += 12;
+  else if (widthNum >= 5) pro += 8;
+  if (sku.species === "Oak" || sku.species === "Hickory") pro += 4;
+  if (sku.species === "Maple" || sku.species === "Ash")   pro -= 2;
+  if (sku.lifecycle === "Core") pro += 4;
+  pro = Math.max(22, Math.min(82, Math.round(pro)));
+  return { pro, diy: 100 - pro };
+}
+
+// ─── Hindsight scan layer (Existing Store flow, Step 1) ────────────────────────
+// The agent scans every active option, scores it with the same weighted engine
+// used downstream, tags a Keep / Introduce / Drop decision, and reconstructs the
+// last-season historical signals that justify that decision. Fully deterministic
+// so the scan, the transfer, and the line plan always tell one consistent story.
+function buildHindsightRows() {
+  return SOLID_PREFINISHED_CANDIDATES.map((sku) => {
+    const score = computeSKUScore(sku);
+    const enriched = { ...sku, score };
+    enriched.mktPotential = computeMktPotential(enriched);
+    enriched.st          = computeST(enriched);
+    enriched.existingReco = computeExistingReco(enriched, score);
+    enriched.explain      = computeExplainability(enriched);
+    // Reconstructed last-season performance (R13 peer velocity → annualized).
+    const annualUnits  = Math.round(sku.peerVelocity * 4);
+    const salesDollars = Math.round(annualUnits * sku.retail);
+    enriched.hindsight = {
+      annualUnits,
+      salesDollars,
+      gmPct:       Math.round(sku.margin * 100),
+      sellThrough: enriched.st,
+      returnRate:  Math.round((sku.returnRate || 0) * 1000) / 10,
+    };
+    return enriched;
+  }).sort((a, b) => b.explain.score - a.explain.score);
+}
+
+// Human label + Badge treatment for a hindsight decision.
+const HINDSIGHT_DECISION = {
+  keep: { label: "Carryover",  color: "success", desc: "Proven performer — auto-retained" },
+  add:  { label: "Introduce",  color: "info",    desc: "Top-scoring recommendation" },
+  drop: { label: "Drop",       color: "error",   desc: "Underperformer — held back" },
+};
 
 // ─── Tier 2 Override Grid math layer ───────────────────────────────────────────
 // Ag (agreed baseline, from Tier 1's buy plan) vs. Wp (working plan, merchant-
@@ -2582,7 +2685,7 @@ function Tier3WssiEngine({ included, locked = false }) {
   );
 }
 
-function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, initialSnapshot }) {
+function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, initialSnapshot, recoInsights = false }) {
   const stance = scopeForm?.stance || "balanced";
 
   // ── Stacked sticky header ──
@@ -2631,10 +2734,15 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
   // past the fold, hiding rows behind the sticky header.
   const tableMaxHeight = useViewportCappedHeight(tableWrapRef, cardRef, { minHeight: 320 });
 
-  // Score + enrich every candidate SKU (static per scope)
-  const scoredSKUs = useMemo(() => SOLID_PREFINISHED_CANDIDATES.map(sku => {
+  // Merchant-introduced placeholder options (Existing Store flow, Step 3) — net-new
+  // items with no sales history that the merchant adds to the line for upcoming
+  // collections. Kept in local state so they merge into the scored pool below.
+  const [extraSKUs, setExtraSKUs] = useState([]);
+
+  // Score + enrich every candidate SKU (static per scope, + any placeholders)
+  const scoredSKUs = useMemo(() => [...SOLID_PREFINISHED_CANDIDATES, ...extraSKUs].map(sku => {
     const score = computeSKUScore(sku);
-    return {
+    const enriched = {
       ...sku,
       score,
       rec:          computeAgentRec(sku, score),
@@ -2644,19 +2752,111 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
       st:           computeST(sku),
       mandatory:    isMandatory(sku),
     };
-  }).sort((a, b) => b.mktPotential - a.mktPotential), [stance]);
+    // Existing Store Reco decision-support fields (harmless when unused).
+    enriched.existingReco = computeExistingReco(enriched, score);
+    enriched.explain      = computeExplainability(enriched);
+    enriched.proMix       = computeProMix(enriched);
+    return enriched;
+  }).sort((a, b) => b.mktPotential - a.mktPotential), [stance, extraSKUs]);
 
-  const included = useMemo(() => scoredSKUs.filter(s => s.rec === "add"), [scoredSKUs]);
+  // ── Merchant assortment actions (Existing Store flow) ──
+  // Every option carries an Add / Keep / Drop action (default = AI recommendation).
+  // "drop" removes it from the working plan so OTB / margin / sales recompute live.
+  const [recoActions, setRecoActions] = useState(() => initialSnapshot?.tier1?.recoActions || {});
+  const effAction = (s) => recoActions[s.id] || s.existingReco || "keep";
+  const included = useMemo(
+    () => scoredSKUs.filter(s =>
+      recoInsights ? (recoActions[s.id] || s.existingReco || "keep") !== "drop"
+                   : s.rec === "add"),
+    [scoredSKUs, recoActions, recoInsights],
+  );
 
-  // ── Line-plan grid pagination ──
+  // ── Line-plan filter bar (Existing Store flow) — borrowed from the retired
+  //    Financial-Plan-Reconciliation tab: search + attribute chips. Filters the
+  //    full candidate pool so the merchant can look products up and add them. ──
+  const [f_search, setFSearch] = useState("");
+  const [f_attr, setFAttr] = useState(() => Object.fromEntries(T2_ATTRS.map(a => [a.key, []])));
+  const t1AttrValues = useMemo(() => {
+    const out = {};
+    T2_ATTRS.forEach(a => { out[a.key] = [...new Set(scoredSKUs.map(s => s[a.key]))]; });
+    return out;
+  }, [scoredSKUs]);
+  const activeFilterCount = T2_ATTRS.reduce((n, a) => n + (f_attr[a.key]?.length ? 1 : 0), 0) + (f_search ? 1 : 0);
+  const clearFilters = () => { setFSearch(""); setFAttr(Object.fromEntries(T2_ATTRS.map(a => [a.key, []]))); };
+
+  // ── Placeholder SKU introduction (Existing Store flow, Step 3) ──
+  // Upcoming items without sales history. Created via the modal below, appended
+  // to the scored pool, and defaulted to an "Add" action so they enter the plan.
+  const PH_BLANK = { description: "", species: "Oak", finish: "Wirebrushed", width: '5"', retail: "", cost: "", launchDate: "" };
+  const [phOpen, setPhOpen] = useState(false);
+  const [phForm, setPhForm] = useState(PH_BLANK);
+  const phValid = phForm.description.trim() && Number(phForm.retail) > 0 && Number(phForm.cost) >= 0 && Number(phForm.cost) < Number(phForm.retail);
+  const addPlaceholder = () => {
+    if (!phValid) return;
+    const retail = Number(phForm.retail);
+    const cost   = Number(phForm.cost);
+    const id  = `PH-${Date.now().toString(36)}`;
+    const item = {
+      id, sku: `NEW-${String(extraSKUs.length + 1).padStart(3, "0")}`,
+      description: phForm.description.trim(),
+      species: phForm.species, finish: phForm.finish, width: phForm.width,
+      retail, cost, margin: Math.max(0, (retail - cost) / retail),
+      lifecycle: "NPI", peerVelocity: 0, returnRate: 0, climateFit: 0.82,
+      conflictFlag: null, gbbTier: "Better", cartonSqft: 20,
+      launchDate: phForm.launchDate || null, endDate: null,
+      isPlaceholder: true,
+    };
+    setExtraSKUs(prev => [...prev, item]);
+    setRecoActions(prev => ({ ...prev, [id]: "add" }));   // placeholders enter the plan
+    setPhForm(PH_BLANK);
+    setPhOpen(false);
+    setT1Page(1);
+  };
+  const t1Filtered = useMemo(() => {
+    if (!recoInsights) return scoredSKUs;
+    const q = f_search.trim().toLowerCase();
+    return scoredSKUs.filter(s => {
+      if (q && !`${s.description} ${s.sku}`.toLowerCase().includes(q)) return false;
+      for (const a of T2_ATTRS) {
+        const sel = f_attr[a.key];
+        if (sel && sel.length && !sel.includes(s[a.key])) return false;
+      }
+      return true;
+    });
+  }, [scoredSKUs, recoInsights, f_search, f_attr]);
+
+  // ── Line-plan grid pagination (over the filtered source) ──
   const [t1Page, setT1Page]         = useState(1);
   const [t1PageSize, setT1PageSize] = useState(10);
   useEffect(() => { setT1Page(1); }, [t1PageSize]);
-  const t1TotalPages  = Math.max(1, Math.ceil(scoredSKUs.length / t1PageSize));
+  useEffect(() => { setT1Page(1); }, [f_search, f_attr]);
+  const t1TotalPages  = Math.max(1, Math.ceil(t1Filtered.length / t1PageSize));
   const t1PageClamped = Math.min(t1Page, t1TotalPages);
   const pagedSKUs = useMemo(
-    () => scoredSKUs.slice((t1PageClamped - 1) * t1PageSize, t1PageClamped * t1PageSize),
-    [scoredSKUs, t1PageClamped, t1PageSize],
+    () => t1Filtered.slice((t1PageClamped - 1) * t1PageSize, t1PageClamped * t1PageSize),
+    [t1Filtered, t1PageClamped, t1PageSize],
+  );
+
+  // ── Row action + multi-select helpers (Existing Store flow) ──
+  const [selRows, setSelRows] = useState(() => new Set());
+  const setAction = (id, action) => setRecoActions(prev => ({ ...prev, [id]: action }));
+  const setActionForSelected = (action) => {
+    setRecoActions(prev => { const next = { ...prev }; selRows.forEach(id => { next[id] = action; }); return next; });
+    setSelRows(new Set());
+  };
+  const toggleSel = (id) => setSelRows(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSel = () => setSelRows(new Set());
+  const setPageSelected = (on) => setSelRows(prev => {
+    const n = new Set(prev);
+    pagedSKUs.forEach(s => { if (on) n.add(s.id); else n.delete(s.id); });
+    return n;
+  });
+  const pageSelCount = pagedSKUs.filter(s => selRows.has(s.id)).length;
+  const pageAllSel   = pagedSKUs.length > 0 && pageSelCount === pagedSKUs.length;
+  const pageSomeSel  = pageSelCount > 0 && !pageAllSel;
+  const droppedCount = useMemo(
+    () => scoredSKUs.filter(s => (recoActions[s.id] || s.existingReco) === "drop").length,
+    [scoredSKUs, recoActions],
   );
 
   // ── Editable state (seeded from a re-opened snapshot when present) ──
@@ -2798,6 +2998,100 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
     };
   }, [included, buyQty, agg, constraints]);
 
+  // ── Reconcile & Approve — OTB financial roll-up (Existing Store flow) ──
+  // Aggregates the working plan to the Class level and reconciles it against the
+  // enterprise financial budgets: Open-To-Buy receipt $ (hard cap), Gross Margin %
+  // (floor), and the Sales Plan of record ($ and units, derived from the AI
+  // baseline target buys). Each headline flags a red breach when a budget is broken.
+  const reconcileModel = useMemo(() => {
+    const groups = {};
+    let recWk = 0, salesWkU = 0, salesWk$ = 0, gmNum = 0, gmDen = 0;   // working plan
+    let salesBudgetU = 0, salesBudget$ = 0;                            // AI plan of record
+    included.forEach(s => {
+      const q       = buyQty[s.id] ?? s.target;
+      const stf     = (s.st || 0) / 100;
+      const sUnits  = q * stf;                 // projected sell-through units
+      const sDollars = sUnits * s.retail;      // projected retail sales $
+      const recDollars = q * s.cost;           // receipt (OTB) cost $
+      recWk    += recDollars;
+      salesWkU += sUnits;
+      salesWk$ += sDollars;
+      gmNum    += s.margin * sDollars;
+      gmDen    += sDollars;
+      // Enterprise sales budget = AI-recommended target buys at plan sell-through.
+      const tUnits = s.target * stf;
+      salesBudgetU += tUnits;
+      salesBudget$ += tUnits * s.retail;
+
+      const key = s.productClass;
+      if (!groups[key]) {
+        groups[key] = {
+          cls: key, dept: s.department, sub: s.subDepartment, species: s.species,
+          options: 0, recUnits: 0, recDollars: 0, salesUnits: 0, salesDollars: 0,
+          gmNum: 0, gmDen: 0,
+        };
+      }
+      const g = groups[key];
+      g.options      += 1;
+      g.recUnits     += q;
+      g.recDollars   += recDollars;
+      g.salesUnits   += sUnits;
+      g.salesDollars += sDollars;
+      g.gmNum        += s.margin * sDollars;
+      g.gmDen        += sDollars;
+    });
+
+    const rows = Object.values(groups).map(g => ({
+      cls: g.cls, dept: g.dept, sub: g.sub, species: g.species,
+      options: g.options,
+      recUnits: g.recUnits,
+      recDollars: g.recDollars,
+      salesUnits: Math.round(g.salesUnits),
+      salesDollars: g.salesDollars,
+      gm: g.gmDen ? g.gmNum / g.gmDen : 0,
+      otbShare: recWk ? g.recDollars / recWk : 0,
+    })).sort((a, b) => b.recDollars - a.recDollars);
+
+    const gm         = gmDen ? gmNum / gmDen : agg.blendedMargin;
+    const otbBudget  = constraints.otbBudget;
+    const salesVar$  = salesWk$ - salesBudget$;
+    const salesVarPct = salesBudget$ ? salesVar$ / salesBudget$ : 0;
+
+    return {
+      rows,
+      total: {
+        options: included.length,
+        recUnits: rows.reduce((s, r) => s + r.recUnits, 0),
+        recDollars: recWk,
+        salesUnits: Math.round(salesWkU),
+        salesDollars: salesWk$,
+        gm,
+      },
+      kpi: {
+        receipt: {
+          value: recWk, budget: otbBudget,
+          remaining: otbBudget - recWk,
+          pct: Math.min(100, Math.round(recWk / Math.max(otbBudget, 1) * 100)),
+          breach: recWk > otbBudget,
+        },
+        gm: {
+          value: gm, floor: constraints.marginFloor,
+          pct: Math.min(100, Math.round(gm / Math.max(constraints.marginFloor, 0.01) * 100)),
+          breach: gm < constraints.marginFloor,
+        },
+        sales: {
+          dollars: salesWk$, units: Math.round(salesWkU),
+          budgetDollars: salesBudget$, budgetUnits: Math.round(salesBudgetU),
+          varPct: salesVarPct,
+          pct: Math.min(100, Math.round(salesWk$ / Math.max(salesBudget$, 1) * 100)),
+          breach: salesVarPct < -0.03,   // under the sales plan of record by > 3%
+        },
+      },
+    };
+  }, [included, buyQty, constraints, agg]);
+
+  const anyBreach = reconcileModel.kpi.receipt.breach || reconcileModel.kpi.gm.breach || reconcileModel.kpi.sales.breach;
+
   // ── Health detail cards (fed from live aggregates) ──
   const healthCards = [
     {
@@ -2854,7 +3148,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
     version:      extra.version ?? version,
     updatedAt:    Date.now(),
     metrics:      buildMetrics(),
-    tier1:        { drops, buyQty },
+    tier1:        { drops, buyQty, recoActions },
     constraints:  extra.constraints ?? constraints,
     clusterCfg:   extra.clusterCfg ?? clusterCfg,
     signOffNotes: extra.signOffNotes ?? signOffNotes,
@@ -3362,6 +3656,158 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
       </div>
       )}
 
+      {/* Line-plan filter chip bar (Existing Store flow) — search + attribute
+          chips borrowed from the retired Financial-Plan-Reconciliation tab. */}
+      {recoInsights && (
+        <div className="nsp-t1-filterbar">
+          <div className="nsp-t1-filterbar-search">
+            <Search size={14} />
+            <input
+              placeholder="Search style or SKU…"
+              value={f_search}
+              onChange={e => setFSearch(e.target.value)}
+            />
+            {f_search && (
+              <button className="nsp-t1-filterbar-clearsearch" onClick={() => setFSearch("")} aria-label="Clear search"><X size={12} /></button>
+            )}
+          </div>
+          <div className="nsp-t1-filterbar-chips">
+            {T2_ATTRS.map(a => (
+              <div key={a.key} className="nsp-t1-filterchip">
+                <FdSelect
+                  isMulti
+                  isClearable
+                  isWithSelectAll
+                  isWithSelectedOptionTags
+                  placeholder={a.label}
+                  value={f_attr[a.key]}
+                  options={t1AttrValues[a.key].map(v => ({ value: v, label: v }))}
+                  onChange={(vals) => setFAttr(prev => ({ ...prev, [a.key]: vals || [] }))}
+                  width={190}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="nsp-t1-filterbar-right">
+            <span className="nsp-t1-filterbar-count">
+              {t1Filtered.length} of {scoredSKUs.length}
+            </span>
+            {activeFilterCount > 0 && (
+              <Button variant="ghost" size="small" icon={<X size={12} />} iconPlacement="left" onClick={clearFilters}>
+                Clear
+              </Button>
+            )}
+            {!locked && (
+              <Button variant="stroke" size="small" icon={<FilePlus2 size={13} />} iconPlacement="left" onClick={() => setPhOpen(true)}>
+                Placeholder SKU
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Placeholder SKU introduction modal (Existing Store flow, Step 3) */}
+      <Modal isOpen={phOpen} onClose={() => setPhOpen(false)} title="Introduce Placeholder SKU" size="medium">
+        <div className="nsp-ph">
+          <p className="nsp-ph-intro">
+            Add an upcoming item with no sales history. It enters the plan as a
+            <strong> New Introduction </strong> and inherits climate-based demand defaults until real hindsight arrives.
+          </p>
+          <div className="nsp-ph-field">
+            <label className="nsp-ph-lbl">Description</label>
+            <input
+              className="nsp-ph-input"
+              placeholder="e.g. Coastal 7&quot; Wide Plank Hickory — Fog"
+              value={phForm.description}
+              onChange={e => setPhForm(f => ({ ...f, description: e.target.value }))}
+            />
+          </div>
+          <div className="nsp-ph-grid">
+            <div className="nsp-ph-field">
+              <label className="nsp-ph-lbl">Species</label>
+              <FdSelect
+                value={phForm.species}
+                onChange={v => setPhForm(f => ({ ...f, species: v }))}
+                options={Object.keys(SKU_THUMB_BY_SPECIES).map(s => ({ value: s, label: s }))}
+              />
+            </div>
+            <div className="nsp-ph-field">
+              <label className="nsp-ph-lbl">Finish</label>
+              <FdSelect
+                value={phForm.finish}
+                onChange={v => setPhForm(f => ({ ...f, finish: v }))}
+                options={["Wirebrushed", "Smooth", "Hand-Scraped", "Distressed", "Matte", "Gloss"].map(v => ({ value: v, label: v }))}
+              />
+            </div>
+            <div className="nsp-ph-field">
+              <label className="nsp-ph-lbl">Width</label>
+              <FdSelect
+                value={phForm.width}
+                onChange={v => setPhForm(f => ({ ...f, width: v }))}
+                options={['3.25"', '5"', '7"', '9"'].map(v => ({ value: v, label: v }))}
+              />
+            </div>
+          </div>
+          <div className="nsp-ph-grid">
+            <div className="nsp-ph-field">
+              <label className="nsp-ph-lbl">Retail ($/sqft)</label>
+              <input
+                className="nsp-ph-input" type="number" min="0" step="0.01" placeholder="7.99"
+                value={phForm.retail}
+                onChange={e => setPhForm(f => ({ ...f, retail: e.target.value }))}
+              />
+            </div>
+            <div className="nsp-ph-field">
+              <label className="nsp-ph-lbl">Cost ($/sqft)</label>
+              <input
+                className="nsp-ph-input" type="number" min="0" step="0.01" placeholder="3.49"
+                value={phForm.cost}
+                onChange={e => setPhForm(f => ({ ...f, cost: e.target.value }))}
+              />
+            </div>
+            <div className="nsp-ph-field">
+              <label className="nsp-ph-lbl">Launch Date</label>
+              <input
+                className="nsp-ph-input" type="date"
+                value={phForm.launchDate}
+                onChange={e => setPhForm(f => ({ ...f, launchDate: e.target.value }))}
+              />
+            </div>
+          </div>
+          {phForm.retail && phForm.cost && Number(phForm.cost) >= Number(phForm.retail) && (
+            <div className="nsp-ph-warn"><AlertTriangle size={13} /> Cost must be below retail.</div>
+          )}
+          <div className="nsp-ph-foot">
+            <span className="nsp-ph-margin">
+              {phValid ? <>Projected GM <strong>{Math.round(((Number(phForm.retail) - Number(phForm.cost)) / Number(phForm.retail)) * 100)}%</strong></> : "Enter retail & cost"}
+            </span>
+            <div className="nsp-ph-foot-btns">
+              <Button variant="stroke" size="small" onClick={() => setPhOpen(false)}>Cancel</Button>
+              <Button variant="primary" size="small" icon={<Plus size={13} />} iconPlacement="left" disabled={!phValid} onClick={addPlaceholder}>
+                Add to Line Plan
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Multi-select bulk action bar (Existing Store flow) */}
+      {recoInsights && !locked && selRows.size > 0 && (
+        <div className="nsp-t1-selbar">
+          <div className="nsp-t1-selbar-left">
+            <span className="nsp-t1-selbar-count"><CheckCheck size={14} /> {selRows.size} selected</span>
+            <span className="nsp-t1-selbar-hint">Set the assortment action for all selected options</span>
+          </div>
+          <div className="nsp-t1-selbar-actions">
+            <Button variant="stroke" size="small" icon={<Plus size={12} />} iconPlacement="left" onClick={() => setActionForSelected("add")}>Add</Button>
+            <Button variant="stroke" size="small" icon={<Check size={12} />} iconPlacement="left" onClick={() => setActionForSelected("keep")}>Keep</Button>
+            <Button variant="stroke" size="small" icon={<Minus size={12} />} iconPlacement="left" onClick={() => setActionForSelected("drop")}>Drop</Button>
+            <span className="nsp-t1-selbar-div" />
+            <Button variant="ghost" size="small" icon={<X size={12} />} iconPlacement="left" onClick={clearSel}>Clear</Button>
+          </div>
+        </div>
+      )}
+
       {/* Strategic assortment table — capped so only the rows scroll,
           never the page itself. */}
       <div
@@ -3369,7 +3815,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
         ref={tableWrapRef}
         style={tableMaxHeight ? { maxHeight: `${tableMaxHeight}px` } : undefined}
       >
-      <div className="nsp-t1-table">
+      <div className={`nsp-t1-table${recoInsights ? " nsp-t1-reco" : ""}`}>
         <div className="nsp-t1-thead">
           <span className="nsp-t1-th nsp-t1-th-style">Style · Colour</span>
           <span className="nsp-t1-th">Department</span>
@@ -3379,16 +3825,42 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
           <span className="nsp-t1-th">Launch Date</span>
           <span className="nsp-t1-th">End Date</span>
           <span className="nsp-t1-th">Type</span>
+          {recoInsights && (
+            <span className="nsp-t1-th nsp-t1-th-c">
+              <span className="nsp-t1-reco-th">
+                <Tooltip
+                  title={pageAllSel ? "Clear selection on this page" : "Select all on this page"}
+                  orientation="top" variant="secondary" trigger="hover"
+                >
+                  <input
+                    type="checkbox"
+                    className="nsp-t1-sel-check"
+                    checked={pageAllSel}
+                    disabled={locked || pagedSKUs.length === 0}
+                    ref={el => { if (el) el.indeterminate = pageSomeSel; }}
+                    onChange={() => setPageSelected(!pageAllSel)}
+                    aria-label="Select all options on this page"
+                  />
+                </Tooltip>
+                Recommendation
+              </span>
+            </span>
+          )}
           <span className="nsp-t1-th nsp-t1-th-c">Buy Qty</span>
+          {recoInsights && <span className="nsp-t1-th nsp-t1-th-c">Pro %</span>}
           <span className="nsp-t1-th nsp-t1-th-r">APS</span>
           <span className="nsp-t1-th nsp-t1-th-r">ST%</span>
           <span className="nsp-t1-th nsp-t1-th-r">GM%</span>
           <span className="nsp-t1-th nsp-t1-th-c">Mandatory</span>
           <span className="nsp-t1-th nsp-t1-th-wp">WP Assorted</span>
+          {recoInsights && <span className="nsp-t1-th nsp-t1-th-c">Explainability</span>}
           <span className="nsp-t1-th nsp-t1-th-mkt">Mkt Potential</span>
         </div>
         {pagedSKUs.map(sku => {
-          const isIn = sku.rec === "add";
+          const action = recoInsights ? effAction(sku) : (sku.rec === "add" ? "add" : "drop");
+          const isDropped = recoInsights && action === "drop";
+          const isIn = recoInsights ? action !== "drop" : sku.rec === "add";
+          const rowSelected = recoInsights && selRows.has(sku.id);
           const q = buyQty[sku.id] ?? sku.target;
           const mktColor = sku.mktPotential >= 70 ? "#059669" : sku.mktPotential >= 45 ? "#d97706" : "#dc2626";
           const thumb = SKU_THUMB_BY_SPECIES[sku.species];
@@ -3429,8 +3901,66 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
               </div>
             </div>
           );
+
+          // ── Existing Store Reco decision-support cells (gated by recoInsights) ──
+          const proMix = sku.proMix || { pro: 50, diy: 50 };
+          const proLed = proMix.pro >= 55;
+          const diyLed = proMix.pro <= 45;
+          const proColor = proLed ? "#4f46e5" : diyLed ? "#d97706" : "#475569";
+          const proTooltip = (
+            <div className="nsp-t1-mkt-tip">
+              <div className="nsp-t1-mkt-tip-head">
+                <span className="nsp-t1-mkt-tip-title">Demand Mix</span>
+                <span className="nsp-t1-mkt-tip-score" style={{ color: proColor }}>{proMix.pro}%<span className="nsp-t1-mkt-tip-of"> Pro</span></span>
+              </div>
+              <div className="nsp-t1-mkt-tip-sub">
+                Expected split of Pro/Contractor vs DIY demand, inferred from finish, plank width and lifecycle for the Billings, MT trade area.
+              </div>
+              <div className="nsp-t1-mkt-tip-rows">
+                <div className="nsp-t1-mkt-tip-row">
+                  <span className="nsp-t1-mkt-tip-w">Pro</span>
+                  <span className="nsp-t1-mkt-tip-lbl">Contractor / trade demand</span>
+                  <span className="nsp-t1-mkt-tip-v">{proMix.pro}%</span>
+                </div>
+                <div className="nsp-t1-mkt-tip-row">
+                  <span className="nsp-t1-mkt-tip-w">DIY</span>
+                  <span className="nsp-t1-mkt-tip-lbl">Homeowner / retail demand</span>
+                  <span className="nsp-t1-mkt-tip-v">{proMix.diy}%</span>
+                </div>
+              </div>
+              <div className="nsp-t1-mkt-tip-formula">
+                {proLed ? "Contractor-led — rustic finish / wide plank skews trade." : diyLed ? "DIY-led — refined finish skews homeowner." : "Balanced Pro / DIY demand."}
+              </div>
+            </div>
+          );
+          const explain = sku.explain || { score: 0, parts: [] };
+          const explainColor = explain.score >= 70 ? "#059669" : explain.score >= 45 ? "#d97706" : "#dc2626";
+          const explainTooltip = (
+            <div className="nsp-t1-mkt-tip">
+              <div className="nsp-t1-mkt-tip-head">
+                <span className="nsp-t1-mkt-tip-title">Explainability Score</span>
+                <span className="nsp-t1-mkt-tip-score" style={{ color: explainColor }}>{explain.score}<span className="nsp-t1-mkt-tip-of">/100</span></span>
+              </div>
+              <div className="nsp-t1-mkt-tip-sub">
+                Recommendation confidence — a weighted blend of the KPIs driving this Add / Keep / Drop call.
+              </div>
+              <div className="nsp-t1-mkt-tip-rows">
+                {explain.parts.map(p => (
+                  <div key={p.key} className="nsp-t1-mkt-tip-row">
+                    <span className="nsp-t1-mkt-tip-w">{Math.round(p.weight * 100)}%</span>
+                    <span className="nsp-t1-mkt-tip-lbl">{p.label} <em>({p.hint})</em></span>
+                    <span className="nsp-t1-mkt-tip-v">{p.value} → {p.contribution}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="nsp-t1-mkt-tip-formula">
+                = {explain.parts.map(p => `${Math.round(p.weight * 100)}%×${p.value}`).join(" + ")} → {explain.score}/100
+              </div>
+            </div>
+          );
+
           return (
-            <div key={sku.id} className={`nsp-t1-row ${isIn ? "" : "nsp-t1-row-dim"}`}>
+            <div key={sku.id} className={`nsp-t1-row ${isIn ? "" : "nsp-t1-row-dim"}${isDropped ? " nsp-t1-row-dropped" : ""}${rowSelected ? " nsp-t1-row-selected" : ""}`}>
               {/* Style-Colour */}
               <span className="nsp-t1-td nsp-t1-td-style">
                 {thumb && (
@@ -3466,6 +3996,41 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                   size="small"
                 />
               </span>
+              {/* Recommendation: row select + editable Add/Keep/Drop (Existing Store Reco only) */}
+              {recoInsights && (
+                <span className="nsp-t1-td nsp-t1-td-c">
+                  <span className="nsp-t1-reco-cell">
+                    <input
+                      type="checkbox"
+                      className="nsp-t1-sel-check"
+                      checked={rowSelected}
+                      disabled={locked}
+                      onChange={() => toggleSel(sku.id)}
+                      aria-label={`Select ${sku.description}`}
+                    />
+                    <span className="nsp-t1-actseg" role="group" aria-label="Assortment action">
+                      {[
+                        { key: "add",  label: "Add",  Icon: Plus  },
+                        { key: "keep", label: "Keep", Icon: Check },
+                        { key: "drop", label: "Drop", Icon: Minus },
+                      ].map(opt => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          className={`nsp-t1-actseg-btn ${action === opt.key ? `is-active is-${opt.key}` : ""}`}
+                          disabled={locked}
+                          onClick={() => setAction(sku.id, opt.key)}
+                          title={`Set to ${opt.label}`}
+                          aria-pressed={action === opt.key}
+                        >
+                          <opt.Icon size={11} />
+                          {action === opt.key && <span className="nsp-t1-actseg-lbl">{opt.label}</span>}
+                        </button>
+                      ))}
+                    </span>
+                  </span>
+                </span>
+              )}
               {/* Buy Qty — read-only. Quantified downstream in the Tier 3 WSSI
                   engine; Tier 1 mirrors that calculated intake as a locked value. */}
               <span className="nsp-t1-td nsp-t1-td-c">
@@ -3486,6 +4051,24 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                   <Tag label="Unassigned" type="default" variant="subtle" size="small" />
                 )}
               </span>
+              {/* Pro % (Contractor mix) — Existing Store Reco only */}
+              {recoInsights && (
+                <span className="nsp-t1-td nsp-t1-td-c">
+                  <Tooltip title={proTooltip} orientation="top" variant="secondary" trigger="hover">
+                    <span className="nsp-t1-promix">
+                      <span className="nsp-t1-promix-top">
+                        {proLed ? <ArrowUp size={12} style={{ color: proColor }} />
+                          : diyLed ? <ArrowDown size={12} style={{ color: proColor }} />
+                          : <Minus size={12} style={{ color: proColor }} />}
+                        <span className="nsp-t1-promix-val" style={{ color: proColor }}>{proMix.pro}%</span>
+                      </span>
+                      <span className="nsp-t1-promix-bar">
+                        <span className="nsp-t1-promix-fill" style={{ width: `${proMix.pro}%`, background: proColor }} />
+                      </span>
+                    </span>
+                  </Tooltip>
+                </span>
+              )}
               {/* APS */}
               <span className="nsp-t1-td nsp-t1-td-r">{sku.aps.toFixed(1)}</span>
               {/* ST% */}
@@ -3506,6 +4089,19 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                   ? <span className="nsp-t1-wp-true"><Check size={13} /> True</span>
                   : <span className="nsp-t1-wp-false">— False</span>}
             </span>
+              {/* Explainability Score (Existing Store Reco only) */}
+              {recoInsights && (
+                <span className="nsp-t1-td nsp-t1-td-c">
+                  <Tooltip title={explainTooltip} orientation="left" variant="secondary" trigger="hover">
+                    <span className="nsp-t1-mkt-cell nsp-t1-explain-cell">
+                      <div className="nsp-t1-mkt-track">
+                        <div className="nsp-t1-mkt-fill" style={{ width: `${explain.score}%`, background: explainColor }} />
+                      </div>
+                      <span className="nsp-t1-mkt-score" style={{ color: explainColor }}>{explain.score}</span>
+                    </span>
+                  </Tooltip>
+                </span>
+              )}
               {/* Mkt Potential (moved to end) — hover for calculation methodology */}
               <span className="nsp-t1-td nsp-t1-td-mkt">
                 <Tooltip title={mktTooltip} orientation="left" variant="secondary" trigger="hover">
@@ -3524,7 +4120,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
       <TablePager
         page={t1PageClamped}
         pageSize={t1PageSize}
-        totalRows={scoredSKUs.length}
+        totalRows={t1Filtered.length}
         onPageChange={setT1Page}
         onPageSizeChange={setT1PageSize}
         noun="SKUs"
@@ -3869,23 +4465,200 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
     </div>
   );
 
-  const tabNames = [
-    { label: "Line Plan & Architecture",   value: "tier1" },
-    { label: "Financial Plan Reconciliation", value: "tier2" },
-    { label: "Weekly Buy Plan (WSSI)",      value: "tier3" },
-  ];
-  const tabPanels = [
-    tier1Panel,
-    <Tier2OverrideGrid
-      included={included}
-      buyQty={buyQty}
-      drops={drops}
-      locked={locked}
-      onReport={setTier2Report}
-      onSubmitApproved={tier1Finalized ? () => setSignOffOpen(true) : undefined}
-    />,
-    <Tier3WssiEngine included={included} locked={locked} />,
-  ];
+  // ── Reconcile & Approve tab (Existing Store flow only) ──
+  const rk = reconcileModel.kpi;
+  const reconcilePanel = (
+    <div className="nsp-rec">
+      {/* KPI ribbon — Open-To-Buy · Gross Margin · Sales Budget */}
+      <div className="nsp-rec-ribbon">
+        {/* Open-To-Buy (receipt dollars) */}
+        <Card size="small" sx={{ ...panelSx, padding: 0, overflow: "hidden" }}>
+          <div className={`nsp-rec-kpi ${rk.receipt.breach ? "is-breach" : "is-ok"}`}>
+            <div className="nsp-rec-kpi-top">
+              <span className="nsp-rec-kpi-eyebrow"><Activity size={13} /> Open-To-Buy · Receipts</span>
+              <Badge
+                label={rk.receipt.breach ? `Over Budget ${fmtMoneyK(Math.abs(rk.receipt.remaining))}` : `Surplus ${fmtMoneyK(rk.receipt.remaining)}`}
+                color={rk.receipt.breach ? "error" : "success"}
+                variant="subtle"
+                size="small"
+              />
+            </div>
+            <div className="nsp-rec-kpi-figure">
+              <span className="nsp-rec-kpi-val">{fmtMoneyK(rk.receipt.value)}</span>
+              <span className="nsp-rec-kpi-of">of {fmtMoneyK(rk.receipt.budget)} budget</span>
+            </div>
+            <div className="nsp-rec-kpi-track">
+              <div className="nsp-rec-kpi-fill" style={{ width: `${rk.receipt.pct}%`, background: rk.receipt.breach ? "#dc2626" : "linear-gradient(90deg,#4f46e5,#818cf8)" }} />
+            </div>
+            <div className="nsp-rec-kpi-foot">Committed receipt dollars vs. enterprise OTB cap</div>
+          </div>
+        </Card>
+
+        {/* Gross Margin % */}
+        <Card size="small" sx={{ ...panelSx, padding: 0, overflow: "hidden" }}>
+          <div className={`nsp-rec-kpi ${rk.gm.breach ? "is-breach" : "is-ok"}`}>
+            <div className="nsp-rec-kpi-top">
+              <span className="nsp-rec-kpi-eyebrow"><TrendingUp size={13} /> Gross Margin</span>
+              <Badge
+                label={rk.gm.breach ? "Below Floor" : "On Target"}
+                color={rk.gm.breach ? "error" : "success"}
+                variant="subtle"
+                size="small"
+              />
+            </div>
+            <div className="nsp-rec-kpi-figure">
+              <span className="nsp-rec-kpi-val">{(rk.gm.value * 100).toFixed(1)}%</span>
+              <span className="nsp-rec-kpi-of">floor {(rk.gm.floor * 100).toFixed(0)}%</span>
+            </div>
+            <div className="nsp-rec-kpi-track">
+              <div className="nsp-rec-kpi-fill" style={{ width: `${rk.gm.pct}%`, background: rk.gm.breach ? "#dc2626" : "linear-gradient(90deg,#059669,#34d399)" }} />
+            </div>
+            <div className="nsp-rec-kpi-foot">Sales-weighted blended margin across the assorted plan</div>
+          </div>
+        </Card>
+
+        {/* Sales Budget ($ and units) */}
+        <Card size="small" sx={{ ...panelSx, padding: 0, overflow: "hidden" }}>
+          <div className={`nsp-rec-kpi ${rk.sales.breach ? "is-breach" : "is-ok"}`}>
+            <div className="nsp-rec-kpi-top">
+              <span className="nsp-rec-kpi-eyebrow"><Target size={13} /> Sales Budget</span>
+              <Badge
+                label={rk.sales.breach ? `Under Plan ${(rk.sales.varPct * 100).toFixed(1)}%` : `${rk.sales.varPct >= 0 ? "+" : ""}${(rk.sales.varPct * 100).toFixed(1)}% vs plan`}
+                color={rk.sales.breach ? "error" : "success"}
+                variant="subtle"
+                size="small"
+              />
+            </div>
+            <div className="nsp-rec-kpi-figure">
+              <span className="nsp-rec-kpi-val">{fmtMoneyK(rk.sales.dollars)}</span>
+              <span className="nsp-rec-kpi-of">{rk.sales.units.toLocaleString()} units</span>
+            </div>
+            <div className="nsp-rec-kpi-track">
+              <div className="nsp-rec-kpi-fill" style={{ width: `${rk.sales.pct}%`, background: rk.sales.breach ? "#dc2626" : "linear-gradient(90deg,#0ea5e9,#38bdf8)" }} />
+            </div>
+            <div className="nsp-rec-kpi-foot">Projected sales vs. plan of record ({fmtMoneyK(rk.sales.budgetDollars)} · {rk.sales.budgetUnits.toLocaleString()} units)</div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Aggregated, read-only roll-up at the Class level */}
+      <Card size="small" sx={{ ...panelSx, padding: 0, overflow: "hidden" }}>
+        <div className="nsp-rec-rollup-head-bar">
+          <div className="nsp-rec-rollup-head-text">
+            <span className="nsp-rec-rollup-title">Financial Roll-Up · by Class</span>
+            <span className="nsp-rec-rollup-sub">{scopeForm.department} · aggregated from {included.length} assorted options — read-only</span>
+          </div>
+          <Badge label="Read-only" color="default" variant="stroke" size="small" />
+        </div>
+        <div className="nsp-rec-table">
+          <div className="nsp-rec-thead">
+            <span className="nsp-rec-th">Class</span>
+            <span className="nsp-rec-th nsp-rec-th-r">Options</span>
+            <span className="nsp-rec-th nsp-rec-th-r">Receipt Units</span>
+            <span className="nsp-rec-th nsp-rec-th-r">Receipt $ (OTB)</span>
+            <span className="nsp-rec-th nsp-rec-th-r">Sales Units</span>
+            <span className="nsp-rec-th nsp-rec-th-r">Sales $</span>
+            <span className="nsp-rec-th nsp-rec-th-r">GM %</span>
+            <span className="nsp-rec-th nsp-rec-th-r">OTB Mix</span>
+          </div>
+          {reconcileModel.rows.map(r => (
+            <div key={r.cls} className="nsp-rec-row">
+              <span className="nsp-rec-td nsp-rec-td-cls">
+                <span className="nsp-rec-cls-name">{r.cls}</span>
+                <span className="nsp-rec-cls-sub">{r.sub}</span>
+              </span>
+              <span className="nsp-rec-td nsp-rec-td-r">{r.options}</span>
+              <span className="nsp-rec-td nsp-rec-td-r">{r.recUnits.toLocaleString()}</span>
+              <span className="nsp-rec-td nsp-rec-td-r nsp-rec-td-strong">{fmtMoneyK(r.recDollars)}</span>
+              <span className="nsp-rec-td nsp-rec-td-r">{r.salesUnits.toLocaleString()}</span>
+              <span className="nsp-rec-td nsp-rec-td-r">{fmtMoneyK(r.salesDollars)}</span>
+              <span className={`nsp-rec-td nsp-rec-td-r ${r.gm < constraints.marginFloor ? "nsp-rec-td-warn" : ""}`}>{(r.gm * 100).toFixed(1)}%</span>
+              <span className="nsp-rec-td nsp-rec-td-r">
+                <span className="nsp-rec-share">
+                  <span className="nsp-rec-share-bar"><span className="nsp-rec-share-fill" style={{ width: `${Math.round(r.otbShare * 100)}%` }} /></span>
+                  <span className="nsp-rec-share-val">{Math.round(r.otbShare * 100)}%</span>
+                </span>
+              </span>
+            </div>
+          ))}
+          <div className="nsp-rec-row nsp-rec-row-total">
+            <span className="nsp-rec-td nsp-rec-td-cls">Total Store</span>
+            <span className="nsp-rec-td nsp-rec-td-r">{reconcileModel.total.options}</span>
+            <span className="nsp-rec-td nsp-rec-td-r">{reconcileModel.total.recUnits.toLocaleString()}</span>
+            <span className={`nsp-rec-td nsp-rec-td-r nsp-rec-td-strong ${rk.receipt.breach ? "nsp-rec-td-warn" : ""}`}>{fmtMoneyK(reconcileModel.total.recDollars)}</span>
+            <span className="nsp-rec-td nsp-rec-td-r">{reconcileModel.total.salesUnits.toLocaleString()}</span>
+            <span className="nsp-rec-td nsp-rec-td-r">{fmtMoneyK(reconcileModel.total.salesDollars)}</span>
+            <span className={`nsp-rec-td nsp-rec-td-r ${rk.gm.breach ? "nsp-rec-td-warn" : ""}`}>{(reconcileModel.total.gm * 100).toFixed(1)}%</span>
+            <span className="nsp-rec-td nsp-rec-td-r">100%</span>
+          </div>
+        </div>
+      </Card>
+
+      {/* Reconcile & approve footer */}
+      <div className={`nsp-rec-approve ${anyBreach ? "is-blocked" : "is-clear"}`}>
+        <div className="nsp-rec-approve-status">
+          {anyBreach ? <AlertTriangle size={16} /> : <CheckCircle size={16} />}
+          <div className="nsp-rec-approve-text">
+            <span className="nsp-rec-approve-title">
+              {anyBreach ? "Budget breach — resolve before approval" : "Plan reconciles to all budgets"}
+            </span>
+            <span className="nsp-rec-approve-sub">
+              {anyBreach
+                ? "One or more headline budgets is in breach. Re-configure caps or the line plan to clear the red flags."
+                : "Open-To-Buy, Gross Margin and Sales Budget are all within tolerance."}
+            </span>
+          </div>
+        </div>
+        {!locked && (
+          <Button
+            variant="primary"
+            size="small"
+            icon={<ShieldCheck size={13} />}
+            iconPlacement="left"
+            disabled={anyBreach || !tier1Finalized}
+            onClick={() => setSignOffOpen(true)}
+          >
+            {tier1Finalized ? "Submit for Approval" : "Finalize line plan first"}
+          </Button>
+        )}
+        {locked && (
+          <Badge label="Approved & Locked" color="info" variant="subtle" size="small" />
+        )}
+      </div>
+    </div>
+  );
+
+  // Existing Store Reco retires the monthly WP-override tab (its filters now live
+  // on the Line Plan) and adds Reconcile & Approve. New Store keeps the full trio.
+  const tabNames = recoInsights
+    ? [
+        { label: "Line Plan & Architecture", value: "tier1" },
+        { label: "Weekly Buy Plan (WSSI)",   value: "tier3" },
+        { label: "Reconcile & Approve",      value: "reconcile" },
+      ]
+    : [
+        { label: "Line Plan & Architecture",      value: "tier1" },
+        { label: "Financial Plan Reconciliation", value: "tier2" },
+        { label: "Weekly Buy Plan (WSSI)",        value: "tier3" },
+      ];
+  const tabPanels = recoInsights
+    ? [
+        tier1Panel,
+        <Tier3WssiEngine included={included} locked={locked} />,
+        reconcilePanel,
+      ]
+    : [
+        tier1Panel,
+        <Tier2OverrideGrid
+          included={included}
+          buyQty={buyQty}
+          drops={drops}
+          locked={locked}
+          onReport={setTier2Report}
+          onSubmitApproved={tier1Finalized ? () => setSignOffOpen(true) : undefined}
+        />,
+        <Tier3WssiEngine included={included} locked={locked} />,
+      ];
 
   return (
     <div
@@ -3936,7 +4709,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                   size="small"
                   icon={tier1Finalized ? <Check size={13} /> : <ArrowRight size={13} />}
                   iconPlacement="right"
-                  onClick={() => { setTier1Finalized(true); setActiveTier("tier2"); }}
+                  onClick={() => { setTier1Finalized(true); setActiveTier(recoInsights ? "tier3" : "tier2"); }}
                 >
                   {tier1Finalized ? "Line Plan Finalized" : "Finalize Line Plan"}
                 </Button>
@@ -4915,6 +5688,316 @@ export default function NewStorePlanningNew({ onNavigate }) {
         ) : null
       )}  {/* end store && phase !== loading ternary */}
         </> /* close landing wrapper */
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Step 1 — Hindsight Scan
+ * The agent scans every active option, scores it, and tags a Keep / Introduce /
+ * Drop decision with the last-season signals behind it. The merchant reviews the
+ * roster then transfers the qualified line onto the Scenario 2 Line Plan.
+ * ────────────────────────────────────────────────────────────────────────── */
+function HindsightScan({ store, scopeForm, onTransfer }) {
+  const rows = useMemo(() => buildHindsightRows(), []);
+
+  const keepRows = rows.filter(r => r.existingReco === "keep");
+  const addRows  = rows.filter(r => r.existingReco === "add");
+  const dropRows = rows.filter(r => r.existingReco === "drop");
+  const qualified = rows.filter(r => r.existingReco !== "drop");
+  const blended = rows.length
+    ? Math.round(rows.reduce((s, r) => s + r.explain.score, 0) / rows.length)
+    : 0;
+
+  const money = (v) => `$${(v / 1000).toFixed(1)}k`;
+
+  const handleTransfer = () => {
+    const recoActions = Object.fromEntries(rows.map(r => [r.id, r.existingReco]));
+    onTransfer(recoActions);
+  };
+
+  const stats = [
+    { key: "scan", label: "Items Scanned",      value: rows.length,     tone: "neutral", Icon: Search,       sub: "active options in hindsight" },
+    { key: "keep", label: "Carryover",          value: keepRows.length, tone: "success", Icon: CheckCircle,  sub: "proven performers retained" },
+    { key: "add",  label: "New Introductions",  value: addRows.length,  tone: "info",    Icon: Sparkles,     sub: "top-scoring recommendations" },
+    { key: "drop", label: "Drop Candidates",    value: dropRows.length, tone: "error",   Icon: AlertTriangle,sub: "underperformers held back" },
+  ];
+
+  return (
+    <div className="nsp-hs">
+      <div className="nsp-hs-head">
+        <div className="nsp-hs-head-left">
+          <div className="nsp-hs-eyebrow">
+            <Cpu size={13} /> Assortment Agent · Step 1 of 3
+          </div>
+          <h2 className="nsp-hs-title">Hindsight Scan &amp; Recommendation</h2>
+          <p className="nsp-hs-sub">
+            Scored <strong>{rows.length}</strong> active options for{" "}
+            <strong>{store?.name || store?.label || "the store"}</strong> ·{" "}
+            {scopeForm?.department} using the weighted engine (sales · gross margin · sell-through).
+          </p>
+        </div>
+        <div className="nsp-hs-head-right">
+          <div className="nsp-hs-blend">
+            <span className="nsp-hs-blend-val">{blended}</span>
+            <span className="nsp-hs-blend-lbl">Blended<br />Confidence</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="nsp-hs-kpis">
+        {stats.map(({ key, label, value, tone, Icon, sub }) => (
+          <Card key={key} className={`nsp-hs-kpi is-${tone}`} sx={panelSx}>
+            <div className="nsp-hs-kpi-top">
+              <span className="nsp-hs-kpi-ic"><Icon size={15} /></span>
+              <span className="nsp-hs-kpi-lbl">{label}</span>
+            </div>
+            <div className="nsp-hs-kpi-val">{value}</div>
+            <div className="nsp-hs-kpi-sub">{sub}</div>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="nsp-hs-tablecard" sx={panelSx}>
+        <div className="nsp-hs-tablehead">
+          <div className="nsp-hs-tablehead-left">
+            <Layers size={14} />
+            <span>Scored Roster</span>
+            <Badge label={`${rows.length} options`} color="default" variant="stroke" size="small" />
+          </div>
+          <span className="nsp-hs-tablehead-hint">Ranked by recommendation confidence</span>
+        </div>
+
+        <div className="nsp-hs-table" role="table">
+          <div className="nsp-hs-row nsp-hs-row-head" role="row">
+            <span className="nsp-hs-th nsp-hs-th-prod">Option</span>
+            <span className="nsp-hs-th">Lifecycle</span>
+            <span className="nsp-hs-th nsp-hs-th-num">Sales (LY)</span>
+            <span className="nsp-hs-th nsp-hs-th-num">GM%</span>
+            <span className="nsp-hs-th nsp-hs-th-num">Sell-Thru</span>
+            <span className="nsp-hs-th nsp-hs-th-score">Reco Score</span>
+            <span className="nsp-hs-th nsp-hs-th-dec">Decision</span>
+          </div>
+
+          {rows.map((r) => {
+            const dec = HINDSIGHT_DECISION[r.existingReco] || HINDSIGHT_DECISION.keep;
+            const thumb = SKU_THUMB_BY_SPECIES[r.species];
+            return (
+              <div key={r.id} className={`nsp-hs-row is-${r.existingReco}`} role="row">
+                <span className="nsp-hs-td nsp-hs-td-prod">
+                  {thumb
+                    ? <img className="nsp-hs-thumb" src={thumb} alt="" />
+                    : <span className="nsp-hs-thumb nsp-hs-thumb-ph"><Package size={14} /></span>}
+                  <span className="nsp-hs-prod-txt">
+                    <span className="nsp-hs-prod-name">{r.description}</span>
+                    <span className="nsp-hs-prod-sub">{r.sku} · {r.species} · {r.finish} · {r.width}</span>
+                  </span>
+                </span>
+                <span className="nsp-hs-td">
+                  <Tag label={r.lifecycle} size="small" />
+                </span>
+                <span className="nsp-hs-td nsp-hs-td-num">{money(r.hindsight.salesDollars)}</span>
+                <span className="nsp-hs-td nsp-hs-td-num">{r.hindsight.gmPct}%</span>
+                <span className="nsp-hs-td nsp-hs-td-num">{r.hindsight.sellThrough}%</span>
+                <span className="nsp-hs-td nsp-hs-td-score">
+                  <span className="nsp-hs-scorebar">
+                    <span className="nsp-hs-scorebar-fill" style={{ width: `${r.explain.score}%` }} />
+                  </span>
+                  <span className="nsp-hs-scoreval">{r.explain.score}</span>
+                </span>
+                <span className="nsp-hs-td nsp-hs-td-dec">
+                  <Badge label={dec.label} color={dec.color} variant="subtle" size="small" />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card className="nsp-hs-cta" sx={panelSx}>
+        <div className="nsp-hs-cta-left">
+          <ArrowRight size={16} />
+          <div className="nsp-hs-cta-txt">
+            <span className="nsp-hs-cta-title">
+              Transfer {qualified.length} qualified options to the Line Plan
+            </span>
+            <span className="nsp-hs-cta-sub">
+              {keepRows.length} carryover · {addRows.length} new introduction{addRows.length === 1 ? "" : "s"} ·{" "}
+              {dropRows.length} drop candidate{dropRows.length === 1 ? "" : "s"} held back
+            </span>
+          </div>
+        </div>
+        <Button
+          variant="primary"
+          size="medium"
+          icon={<ArrowRight size={15} />}
+          iconPlacement="right"
+          onClick={handleTransfer}
+        >
+          Transfer to Line Plan
+        </Button>
+      </Card>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Step 2 — Transfer / Line Population
+ * A short glass-box sequence that carries the scored + tagged roster onto the
+ * Scenario 2 Line Plan workspace, then reveals the recommendation screen.
+ * ────────────────────────────────────────────────────────────────────────── */
+function TransferStage({ store, scopeForm, count, onComplete }) {
+  const STEPS = useMemo(() => ([
+    "Locking hindsight recommendation scores",
+    "Selecting qualified carryover + top recommendations",
+    "Attaching explainability & historical signals",
+    `Populating "${scopeForm?.scenarioName || "Scenario 2"}" line plan workspace`,
+    "Reconciling Open-To-Buy envelope",
+  ]), [scopeForm]);
+
+  const [progress, setProgress] = useState(0);
+  const [done, setDone] = useState(0);
+
+  useEffect(() => {
+    const perStep = 620;
+    const timers = STEPS.map((_, i) =>
+      setTimeout(() => setDone(i + 1), perStep * (i + 1))
+    );
+    const start = Date.now();
+    const total = perStep * STEPS.length + 220;
+    let raf;
+    const tick = () => {
+      const p = Math.min(100, Math.round(((Date.now() - start) / total) * 100));
+      setProgress(p);
+      if (p < 100) raf = requestAnimationFrame(tick);
+      else setTimeout(() => onComplete?.(), 260);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { timers.forEach(clearTimeout); cancelAnimationFrame(raf); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="nsp-xfer">
+      <Card className="nsp-xfer-card" sx={panelSx}>
+        <div className="nsp-xfer-head">
+          <span className="nsp-xfer-ic"><Cpu size={18} /></span>
+          <div className="nsp-xfer-head-txt">
+            <span className="nsp-xfer-title">Transferring to Line Plan</span>
+            <span className="nsp-xfer-sub">
+              Carrying {count} option{count === 1 ? "" : "s"} · scores · explainability · history
+            </span>
+          </div>
+          <Badge label={`${progress}%`} color="info" variant="subtle" size="small" />
+        </div>
+
+        <ProgressBar value={progress} max={100} />
+
+        <div className="nsp-xfer-steps">
+          {STEPS.map((label, i) => {
+            const state = i < done ? "done" : i === done ? "active" : "wait";
+            return (
+              <div key={i} className={`nsp-xfer-step is-${state}`}>
+                <span className="nsp-xfer-step-ic">
+                  {state === "done"
+                    ? <Check size={13} />
+                    : state === "active"
+                      ? <Loader size="small" />
+                      : <span className="nsp-xfer-dot" />}
+                </span>
+                <span className="nsp-xfer-step-lbl">{label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Existing Store Reco — staged workflow:
+ *   Step 1 Hindsight Scan → Step 2 Transfer → Step 3 Line Plan (recommendation)
+ * The Hindsight decisions seed the Line Plan's Add / Keep / Drop actions so the
+ * scan, the transfer and the recommendation screen stay one consistent story.
+ * ────────────────────────────────────────────────────────────────────────── */
+export function ExistingStoreReco() {
+  // Default anchor store — prefer an existing (non-new) store to match the name.
+  const store = useMemo(
+    () => LOCATIONS.find(l => l.storeType && l.storeType !== "New Store") || LOCATIONS[0],
+    []
+  );
+
+  // Default scope mirrors the ScopeDrawer's initial selection.
+  const scopeForm = useMemo(() => {
+    const dept = HIERARCHY[0].label;
+    const subs = [HIERARCHY[0].subs[0].label];
+    const cls  = ["All Classes"];
+    return {
+      scenarioName:  buildScenarioName(dept, subs, cls),
+      department:    dept,
+      subdepartment: subs,
+      cls,
+      horizon:       "ss26_h1",
+      stance:        "balanced",
+    };
+  }, []);
+
+  // Independent persistence namespace so it never collides with New Store scenarios.
+  const [savedScenarios, setSavedScenarios] = useState(() => {
+    try { const raw = localStorage.getItem("esr_saved_scenarios"); return raw ? JSON.parse(raw) : []; }
+    catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("esr_saved_scenarios", JSON.stringify(savedScenarios)); }
+    catch { /* quota / privacy mode */ }
+  }, [savedScenarios]);
+  const upsertScenario = (snap) => setSavedScenarios(prev => {
+    const i = prev.findIndex(s => s.id === snap.id);
+    if (i === -1) return [snap, ...prev];
+    const next = [...prev]; next[i] = snap; return next;
+  });
+
+  // stage: hindsight → transfer → lineplan
+  const [stage, setStage] = useState("hindsight");
+  const [seedActions, setSeedActions] = useState({});
+  const [transferCount, setTransferCount] = useState(0);
+  const [runKey, setRunKey] = useState(0);
+
+  const goHindsight = () => { setStage("hindsight"); setRunKey(k => k + 1); };
+  const startTransfer = (recoActions) => {
+    setSeedActions(recoActions);
+    setTransferCount(Object.values(recoActions).filter(a => a !== "drop").length);
+    setStage("transfer");
+  };
+
+  return (
+    <div className="nsp-root">
+      {stage === "hindsight" && (
+        <HindsightScan store={store} scopeForm={scopeForm} onTransfer={startTransfer} />
+      )}
+
+      {stage === "transfer" && (
+        <TransferStage
+          store={store}
+          scopeForm={scopeForm}
+          count={transferCount}
+          onComplete={() => setStage("lineplan")}
+        />
+      )}
+
+      {stage === "lineplan" && (
+        <Tier1LinePlan
+          key={runKey}
+          scopeForm={scopeForm}
+          store={store}
+          initialSnapshot={{ tier1: { recoActions: seedActions } }}
+          onReset={goHindsight}
+          onBack={goHindsight}
+          onSaveScenario={upsertScenario}
+          recoInsights
+        />
       )}
     </div>
   );
