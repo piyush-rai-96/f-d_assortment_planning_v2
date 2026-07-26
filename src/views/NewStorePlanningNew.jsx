@@ -7,7 +7,7 @@
  *  Step 3 → SKU Plan  (placeholder)
  *  Step 4 → Review & Lock  (placeholder)
  */
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
 import { geoAlbers, geoCircle, geoPath } from "d3-geo";
 import { feature } from "topojson-client";
 import usStatesTopology from "us-atlas/states-10m.json";
@@ -16,12 +16,12 @@ import {
   MapPin, Building2, Cpu, Activity, TrendingUp,
   ArrowRight, ArrowLeft, RotateCcw, Save, Lock, AlertTriangle, CheckCircle, ChevronRight,
   Users, Map as MapIcon, Maximize2, X, FileText, Layers, Calendar, Target,
-  Minus, Plus, Sparkles, Undo2, Redo2, Download, Search, Flame,
-  Grid3x3, CheckCheck, ShieldCheck, ClipboardList, FilePlus2, Home,
-  ChevronUp, Clock, Trash2, FileDown,
+  Plus, Sparkles, Undo2, Redo2, Download, Search, Flame,
+  Grid3x3, CheckCheck, ShieldCheck, ClipboardList, FilePlus2, Home, LayoutDashboard,
+  ChevronUp, ChevronLeft, Clock, Trash2, FileDown,
   SlidersHorizontal, Filter, DollarSign, Ruler, Package, GitCompare,
 } from "lucide-react";
-import { Badge, Button, Card, EmptyState, Loader, ProgressBar, Tabs, Tag, Tooltip, Modal, TextArea, Table } from "impact-ui";
+import { Badge, Button, Card, Chart, EmptyState, Loader, ProgressBar, Tag, Tooltip, Modal, TextArea, Table } from "impact-ui";
 import FdSelect from "../components/FdSelect.jsx";
 import { panelSx } from "../styles/panelSx.js";
 import { LOCATIONS, NEW_STORE_INPUTS } from "../data/admin.js";
@@ -29,7 +29,38 @@ import { FD_STORES } from "../data/stores.js";
 import { getStoreCoordinates, STORE_COORDINATES } from "../data/storeCoordinates.js";
 import { CLUSTERS_BY_RUN, STUDIO_RUN_HISTORY } from "../data/agenticClustering.js";
 import { SOLID_PREFINISHED_CANDIDATES, INSTALL_ATTACH_CONFIG } from "../data/newStoreSKUs.js";
+import skuThumbOak from "../assets/sku-thumbs/oak.png";
+import skuThumbHickory from "../assets/sku-thumbs/hickory.png";
+import skuThumbMaple from "../assets/sku-thumbs/maple.png";
+import skuThumbWalnut from "../assets/sku-thumbs/walnut.png";
 import "./NewStorePlanningNew.css";
+
+// Species → product thumbnail. Keyed off the SKU's `species` field so any
+// future catalog additions automatically pick up a matching swatch image.
+const SKU_THUMB_BY_SPECIES = {
+  Oak: skuThumbOak,
+  Hickory: skuThumbHickory,
+  Maple: skuThumbMaple,
+  Walnut: skuThumbWalnut,
+};
+
+function formatSkuDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(`${iso}T00:00:00`);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+// End dates use a far-future sentinel (e.g. 2099-12-31) to mean "open-ended /
+// no planned discontinuation". Render those as blank so the column reads
+// realistically and Time on Offer is only computed for options with a real end.
+function isOpenEndedDate(iso) {
+  if (!iso) return true;
+  const year = new Date(`${iso}T00:00:00`).getFullYear();
+  return Number.isNaN(year) || year >= 2099;
+}
+function formatEndDate(iso) {
+  return isOpenEndedDate(iso) ? "" : formatSkuDate(iso);
+}
 
 // ─── Data ──────────────────────────────────────────────────────────────────────
 
@@ -360,7 +391,7 @@ function USAStoreMap({ newStore, allStores, hideHeader = false }) {
         const position = US_PROJECTION([coordinate.longitude, coordinate.latitude]);
         if (!position) return null;
         const metadata = storeMetaById.get(String(coordinate.storeId));
-        return {
+  return {
           ...coordinate,
           metadata,
           x: position[0],
@@ -390,13 +421,13 @@ function USAStoreMap({ newStore, allStores, hideHeader = false }) {
   return (
     <div className="nsp-map-outer nsp-real-map" style={{ borderRadius: hideHeader ? 0 : undefined }}>
       {!hideHeader && (
-        <div className="nsp-map-topbar">
+      <div className="nsp-map-topbar">
           <span className="nsp-map-title-row"><MapPin size={13} /> F&amp;D Network — Continental USA</span>
-          <div className="nsp-map-legend">
+        <div className="nsp-map-legend">
             <span className="nsp-legend-dot blue" /><span>{dots.length} Active stores</span>
             <span className="nsp-legend-dot amber" /><span>{newStore?.market}, {newStore?.state} · New · SS26</span>
-          </div>
         </div>
+      </div>
       )}
 
       <div className="nsp-map-body nsp-real-map-body">
@@ -475,8 +506,8 @@ function USAStoreMap({ newStore, allStores, hideHeader = false }) {
                   <rect x="8" y="-28" width="116" height="23" rx="6" />
                   <text x="16" y="-13">#{store.storeId} {store.label}</text>
                 </g>
-              </g>
-            ))}
+            </g>
+          ))}
           </g>
 
           {newPos && (
@@ -499,7 +530,7 @@ function USAStoreMap({ newStore, allStores, hideHeader = false }) {
                 <text x="66" y="13" textAnchor="middle">{newStore.market}, {newStore.state}</text>
                 <text className="nsp-real-new-sublabel" x="66" y="23" textAnchor="middle">
                   NEW STORE · SS26 · 30-MI CATCHMENT
-                </text>
+              </text>
               </g>
             </g>
           )}
@@ -507,7 +538,7 @@ function USAStoreMap({ newStore, allStores, hideHeader = false }) {
       </div>
 
       {!hideHeader && (
-        <div className="nsp-map-footer-bar">
+      <div className="nsp-map-footer-bar">
           <span className="nsp-map-footer-stat">
             <span className="nsp-legend-dot blue" />{dots.length} active stores
           </span>
@@ -517,7 +548,7 @@ function USAStoreMap({ newStore, allStores, hideHeader = false }) {
           <span className="nsp-map-footer-coords">
             Coordinate registry · {verifiedCount} verified · {dots.length + 1 - verifiedCount} awaiting verification
           </span>
-        </div>
+      </div>
       )}
     </div>
   );
@@ -735,6 +766,12 @@ const CONSTRAINTS_381 = {
   marginFloor: 0.60,
   otbBudget: 120000,
   good: 30, better: 50, best: 20,
+  // Physical store fixture capacity for the Billings, MT layout (55k sq ft).
+  // One assorted option occupies one merchandising bay; each bay carries a
+  // fixed display footprint used for the Space vs. Capital reconciliation.
+  bays: 25,
+  sqftPerBay: 220,
+  linearFtPerBay: 12,
 };
 const ACTUALS_OTB = 98400;          // from Step 2 ACTUALS_381
 
@@ -968,6 +1005,17 @@ function computeWSSI(sku, { discounts, elasticity, baseDemand }) {
   }
 
   return { asp, gmPct, salesLift, totalSalesUnit, onHand, wocUnits, targetEOH, intake, actualEOH, sellThru, wosCalc, initialOnHand, cp };
+}
+
+// Locked buy quantity surfaced in Tier 1: the total intake the Tier 3 WSSI
+// engine derives at its default parameters. Buy qty is never edited in Tier 1 —
+// it is quantified downstream (Weeks-of-Cover + Presentation Stock), so Tier 1
+// mirrors that calculation rather than exposing an arbitrary stepper.
+function computeWssiIntakeTotal(sku) {
+  if (!sku) return 0;
+  const baseDemand = Math.max(15, Math.round((sku.aps || 8) * 3));
+  const { intake } = computeWSSI(sku, { discounts: WSSI_DEFAULT_DISCOUNTS, elasticity: 3, baseDemand });
+  return Math.round(intake.reduce((a, b) => a + b, 0));
 }
 
 // ─── Assortment Engine log builder ─────────────────────────────────────────────
@@ -1308,14 +1356,14 @@ function ScopeDrawer({ store, onClose, onLaunch }) {
                   />
               </div>
               </div>
+              </div>
             </div>
-          </div>
 
           {/* ── Planning Horizon ────────────────────────────────── */}
           <div className="nsp-drawer-section">
             <div className="nsp-drawer-section-label">
               <Calendar size={13} /> Planning Horizon
-            </div>
+              </div>
             <FdSelect
               value={form.horizon}
               options={PLANNING_HORIZONS}
@@ -1349,17 +1397,17 @@ function ScopeDrawer({ store, onClose, onLaunch }) {
                 <span className="nsp-drawer-preview-val">
                   {PLANNING_HORIZONS.find(h => h.value === form.horizon)?.label}
                 </span>
-              </div>
+                  </div>
               <div className="nsp-drawer-preview-row">
                 <span className="nsp-drawer-preview-lbl">Stance</span>
                 <span className="nsp-drawer-preview-val">
                   <span className="nsp-drawer-preview-dot" /> Balanced
                   <span className="nsp-drawer-preview-auto">Auto-applied</span>
                 </span>
-              </div>
-            </div>
+                </div>
+                  </div>
             <div className="nsp-drawer-hint">{BALANCED_STANCE_DESC}</div>
-          </div>
+                </div>
 
         </div>{/* /nsp-drawer-body */}
 
@@ -1375,24 +1423,25 @@ function ScopeDrawer({ store, onClose, onLaunch }) {
           >
             Launch Engine ↵
           </Button>
-        </div>
+                  </div>
 
-      </div>
-    </div>
+                </div>
+              </div>
   );
 }
 
 // ─── Engine Terminal ───────────────────────────────────────────────────────────
 
-function EngineTerminal({ scopeForm, onComplete }) {
+function EngineTerminal({ scopeForm, onComplete, persistent = false, onReady }) {
   const allLogs   = useMemo(() => buildEngineLogs(scopeForm), [scopeForm]);
   const [visible, setVisible] = useState([]);
   const [progress, setProgress] = useState(0);
   const [stageLabel, setStageLabel] = useState("Initialising");
   const [done, setDone]   = useState(false);
   const [cursor, setCursor] = useState(true);
-  const [countdown, setCountdown]   = useState(2);
-  const [collapsing, setCollapsing] = useState(false);
+  const [countdown, setCountdown]     = useState(2);
+  const [collapsing, setCollapsing]   = useState(false);
+  const [logsExpanded, setLogsExpanded] = useState(true);
   const logEndRef = useRef(null);
   const timers    = useRef([]);
 
@@ -1441,11 +1490,24 @@ function EngineTerminal({ scopeForm, onComplete }) {
     return () => clearInterval(id);
   }, [done]);
 
-  // Once complete, count down 2s (shown in the summary card) then collapse
-  // the terminal and auto-advance — no click required. A user can still
-  // jump ahead early via "Continue Now".
+  // ── Completion handling ──
+  // Persistent (CoT panel) mode: on done, after a short beat auto-collapse the
+  // log body and reveal the recommendation inline below — no countdown, no
+  // click, and the panel stays mounted so its caret is always available.
   useEffect(() => {
-    if (!done) return;
+    if (!persistent || !done) return;
+    const id = setTimeout(() => {
+      setLogsExpanded(false);
+      onReady?.();
+    }, 800);
+    return () => clearTimeout(id);
+  }, [persistent, done]);
+
+  // Legacy (reconfigure) mode: count down 2s (shown in the summary card) then
+  // collapse the terminal and auto-advance — no click required. A user can
+  // still jump ahead early via "Continue Now".
+  useEffect(() => {
+    if (persistent || !done) return;
     setCountdown(2);
     const id = setInterval(() => {
       setCountdown(c => {
@@ -1454,11 +1516,11 @@ function EngineTerminal({ scopeForm, onComplete }) {
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [done]);
+  }, [persistent, done]);
 
   useEffect(() => {
-    if (done && countdown === 0) setCollapsing(true);
-  }, [done, countdown]);
+    if (!persistent && done && countdown === 0) setCollapsing(true);
+  }, [persistent, done, countdown]);
 
   // Fire onComplete once the collapse transition has had time to play
   useEffect(() => {
@@ -1485,23 +1547,32 @@ function EngineTerminal({ scopeForm, onComplete }) {
             <span className="nsp-term-dot red" />
             <span className="nsp-term-dot yellow" />
             <span className={`nsp-term-dot green ${!done ? "nsp-term-dot-pulse" : ""}`} />
-        </div>
+              </div>
           <div className="nsp-term-header-title">
             <span className="nsp-term-engine-name">assortment-engine</span>
             <span className="nsp-term-sep"> · </span>
             <span className="nsp-term-scenario">{scopeForm?.scenarioName || "—"}</span>
-          </div>
-          <div className="nsp-term-stage-wrap">
-            <span className="nsp-term-stage-label">{stageLabel}</span>
-            <div className="nsp-term-progress-wrap">
-              <div className="nsp-term-progress-bar" style={{ width: `${progress}%` }} />
             </div>
+          <div className="nsp-term-stage-wrap">
+            <span className="nsp-term-stage-label">{done ? "Complete" : stageLabel}</span>
+            <div className={`nsp-term-progress-wrap${done ? " is-done" : ""}`}>
+              <div className="nsp-term-progress-bar" style={{ width: `${progress}%` }} />
+          </div>
             <span className="nsp-term-pct">{progress}%</span>
           </div>
-        </div>
+          <button
+            type="button"
+            className="nsp-term-toggle"
+            onClick={() => setLogsExpanded(v => !v)}
+            aria-label={logsExpanded ? "Collapse execution log" : "Expand execution log"}
+            title={logsExpanded ? "Collapse execution log" : "Expand execution log"}
+          >
+            {logsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+            </div>
 
-        {/* ── Log body ─── */}
-        <div className="nsp-term-body">
+        {/* ── Log body (manually collapsible at any time) ─── */}
+        <div className={`nsp-term-body${logsExpanded ? "" : " nsp-term-body-collapsed"}`}>
           <div className="nsp-term-scanline" />
           {visible.map((entry, i) => {
             const isLast = i === visible.length - 1;
@@ -1515,14 +1586,14 @@ function EngineTerminal({ scopeForm, onComplete }) {
                       <div
                         className="nsp-tprog-fill"
                         style={{ animationDuration: `${entry.duration}ms` }}
-                      />
+              />
             </div>
                     <span
                       className="nsp-tprog-done"
                       style={{ animationDelay: `${entry.duration}ms` }}
                     >✓ done</span>
             </div>
-        </div>
+          </div>
               );
             }
             if (entry.type === "header") {
@@ -1564,10 +1635,10 @@ function EngineTerminal({ scopeForm, onComplete }) {
           })}
           <div ref={logEndRef} />
         </div>
-      </div>
+        </div>
 
-      {/* ── Rich summary card ─── */}
-      {done && (
+      {/* ── Rich summary card (legacy reconfigure flow only) ─── */}
+      {done && !persistent && (
         <div className="nsp-eng-summary-card nsp-fade-up">
           <div className="nsp-eng-summary-top">
             <div className="nsp-eng-summary-status">
@@ -1604,7 +1675,7 @@ function EngineTerminal({ scopeForm, onComplete }) {
             <div className="nsp-eng-summary-autoadvance">
               <span className="nsp-eng-summary-autoadvance-txt">
                 {collapsing
-                  ? "Loading Tier 1 Line Plan…"
+                  ? "Loading Line Plan…"
                   : `Continuing automatically in ${countdown}s…`}
               </span>
               <Button
@@ -1617,8 +1688,8 @@ function EngineTerminal({ scopeForm, onComplete }) {
               >
                 Continue Now
               </Button>
-            </div>
-          </div>
+        </div>
+      </div>
         </div>
       )}
     </div>
@@ -1628,45 +1699,159 @@ function EngineTerminal({ scopeForm, onComplete }) {
 // ─── Tier 1 Line Plan ─────────────────────────────────────────────────────────
 
 const GBB_COLORS = { Good: "default", Better: "info", Best: "warning" };
-const ROLE_OPTIONS  = ["Hero", "Supporting", "Filler"].map(v => ({ value: v, label: v }));
-const DROP_OPTIONS  = ["Drop 1", "Drop 2", "Drop 3", "Drop 4"].map(v => ({ value: v, label: v }));
 
-// Compact numeric spinner for BUY QTY — drives live OTB recalculation
-function BuyQtySpinner({ value, onChange, disabled = false }) {
+// Donut palettes — disciplined premium hues, one accent family per chart.
+const SPECIES_COLORS  = { Oak: "#6366f1", Hickory: "#0ea5e9", Maple: "#f59e0b", Walnut: "#7c3aed" };
+const COLORFAM_COLORS = { Natural: "#c9a86a", Grey: "#94a3b8", Dark: "#334155" };
+const GBB_MIX_COLORS  = { Good: "#cbd5e1", Better: "#6366f1", Best: "#f59e0b" };
+
+// Compact attribute-distribution donut built on the Impact UI Chart (pie) wrapper.
+// Chrome is stripped (no header/toolbar/legend) so three sit cleanly side-by-side;
+// the percentage legend is rendered below for a premium, readable layout.
+function ReconDonut({ title, data, note }) {
+  const total = data.reduce((s, d) => s + d.y, 0) || 1;
   return (
-    <div className={`nsp-t1-spinner${disabled ? " nsp-t1-spinner-locked" : ""}`}>
-      <button
-        type="button"
-        className="nsp-t1-spin-btn"
-        onClick={() => onChange(Math.max(0, value - 1))}
-        aria-label="Decrease buy quantity"
-        disabled={disabled}
-      >
-        <Minus size={12} />
-      </button>
-        <input
-        className="nsp-t1-spin-input"
-        type="number"
-        value={value}
-        min={0}
-        disabled={disabled}
-        onChange={e => onChange(Math.max(0, parseInt(e.target.value, 10) || 0))}
-      />
-      <button
-        type="button"
-        className="nsp-t1-spin-btn"
-        onClick={() => onChange(value + 1)}
-        aria-label="Increase buy quantity"
-        disabled={disabled}
-      >
-        <Plus size={12} />
-      </button>
+    <div className="nsp-recon-donut">
+      <div className="nsp-recon-donut-head">
+        <span className="nsp-recon-donut-title">{title}</span>
+        {note && <span className="nsp-recon-donut-note">{note}</span>}
+        </div>
+      <div className="nsp-recon-donut-body">
+        <Chart
+          graphType="pie"
+          cardContainer={false}
+          showHeader={false}
+          showSwitchButton={false}
+          showChartTypeDropdown={false}
+          showDownloadButton={false}
+          showExpandButton={false}
+          height={150}
+          chartMarginBottom={6}
+          seriesData={[{ name: title, data }]}
+          chartOptions={{ backgroundColor: "transparent", spacing: [4, 4, 4, 4] }}
+          legendOptions={{ enabled: false }}
+          plotOptionsOptions={{
+            pie: {
+              innerSize: "66%",
+              size: "100%",
+              borderWidth: 2,
+              borderColor: "#ffffff",
+              dataLabels: { enabled: false },
+            },
+          }}
+          creditsOptions={{ enabled: false }}
+        />
+      </div>
+      <div className="nsp-recon-legend">
+        {data.map(d => (
+          <div key={d.name} className="nsp-recon-legend-item">
+            <span className="nsp-recon-legend-dot" style={{ background: d.color }} />
+            <span className="nsp-recon-legend-name">{d.name}</span>
+            <span className="nsp-recon-legend-pct">{Math.round(d.y / total * 100)}%</span>
+            </div>
+          ))}
+      </div>
     </div>
   );
 }
 
+// Compact numeric spinner for BUY QTY — drives live OTB recalculation
+// Shared pagination footer for record-style tables (Tier 1 SKU grid, Tier 2
+// item rows, etc). Degrades gracefully to a single, disabled-Next page when
+// the row count fits within one page — including the 0-row empty state.
+function TablePager({ page, pageSize, totalRows, onPageChange, onPageSizeChange, pageSizeOptions = [10, 25, 50], noun = "rows" }) {
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const clampedPage = Math.min(Math.max(1, page), totalPages);
+  const start = totalRows === 0 ? 0 : (clampedPage - 1) * pageSize + 1;
+  const end   = Math.min(clampedPage * pageSize, totalRows);
+
+  return (
+    <div className="nsp-pager">
+      <div className="nsp-pager-size">
+        <span className="nsp-pager-size-lbl">Rows per page</span>
+        <FdSelect
+          value={String(pageSize)}
+          options={pageSizeOptions.map(n => ({ value: String(n), label: String(n) }))}
+          onChange={v => onPageSizeChange(Number(v))}
+          width={66}
+          minWidth={66}
+        />
+      </div>
+      <div className="nsp-pager-info">
+        {totalRows === 0 ? `No ${noun}` : `Showing ${start}–${end} of ${totalRows} ${noun}`}
+      </div>
+      <div className="nsp-pager-nav">
+        <button
+          type="button"
+          className="nsp-pager-btn"
+          disabled={clampedPage <= 1}
+          onClick={() => onPageChange(clampedPage - 1)}
+          aria-label="Previous page"
+        >
+          <ChevronLeft size={14} /> Prev
+        </button>
+        <span className="nsp-pager-pageof">Page {clampedPage} of {totalPages}</span>
+        <button
+          type="button"
+          className="nsp-pager-btn nsp-pager-btn-next"
+          disabled={clampedPage >= totalPages}
+          onClick={() => onPageChange(clampedPage + 1)}
+          aria-label="Next page"
+        >
+          Next <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Shared: cap a scroll region's height to whatever room is actually left
+// in the viewport, so only that region scrolls and the page itself never
+// has to move. Re-measures on window resize and whenever `watchRef` (an
+// ancestor whose size reflects layout changes above/around the anchor,
+// e.g. banners appearing) changes size. ─────────────────────────────────────
+function useViewportCappedHeight(anchorRef, watchRef, { minHeight = 240 } = {}) {
+  const [maxHeight, setMaxHeight] = useState(null);
+  useLayoutEffect(() => {
+    const anchorEl = anchorRef.current;
+    const watchEl = watchRef?.current || anchorEl;
+    if (!anchorEl || typeof ResizeObserver === "undefined") return;
+    const bottomPad = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--sp-12")
+    ) || 48;
+    let raf = null;
+    const measure = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const top = anchorEl.getBoundingClientRect().top;
+        const available = Math.round(window.innerHeight - top - bottomPad);
+        setMaxHeight(prev => {
+          const next = Math.max(minHeight, available);
+          return prev === next ? prev : next;
+        });
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const ro = new ResizeObserver(measure);
+    ro.observe(watchEl);
+    return () => {
+      window.removeEventListener("resize", measure);
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [anchorRef, watchRef, minHeight]);
+  return maxHeight;
+}
+
 // ─── Tier 2: Glass-Box Financial Override Grid ─────────────────────────────────
 function Tier2OverrideGrid({ included, buyQty, drops, locked: globalLock = false, onReport, onSubmitApproved }) {
+  // The panel never scrolls — only the grid rows do, capped to whatever
+  // room is actually left in the viewport.
+  const t2CardRef = useRef(null);
+  const t2WrapRef = useRef(null);
+  const t2WrapMaxHeight = useViewportCappedHeight(t2WrapRef, t2CardRef, { minHeight: 580 });
+
   const [monthIdx, setMonthIdx] = useState(0);
   const [wpOverrides, setWpOverrides] = useState({});   // { [skuId]: { [mIdx]: { [metricKey]: value } } }
   const [reasons, setReasons] = useState({});            // { [skuId]: { [mIdx]: { [metricKey]: reasonLabel } } }
@@ -1858,6 +2043,23 @@ function Tier2OverrideGrid({ included, buyQty, drops, locked: globalLock = false
     return map;
   }, [filteredSKUs]);
 
+  // ── Pagination (item rows only — group subtotals & grand total always
+  // reflect the full filtered set, independent of the current page) ──
+  const [t2Page, setT2Page]         = useState(1);
+  const [t2PageSize, setT2PageSize] = useState(10);
+  useEffect(() => { setT2Page(1); }, [search, reviewFilter, attrSel, t2PageSize]);
+  const t2TotalPages   = Math.max(1, Math.ceil(filteredSKUs.length / t2PageSize));
+  const t2PageClamped  = Math.min(t2Page, t2TotalPages);
+  const pagedFilteredSKUs = useMemo(
+    () => filteredSKUs.slice((t2PageClamped - 1) * t2PageSize, t2PageClamped * t2PageSize),
+    [filteredSKUs, t2PageClamped, t2PageSize],
+  );
+  const pagedGroups = useMemo(() => {
+    const map = {};
+    pagedFilteredSKUs.forEach(sku => { (map[sku.species] = map[sku.species] || []).push(sku); });
+    return map;
+  }, [pagedFilteredSKUs]);
+
   const activeMetrics = T2_METRICS.filter(m => visibleMetrics[m.key]);
   const subCount = showVar ? 3 : 2;
 
@@ -1982,7 +2184,7 @@ function Tier2OverrideGrid({ included, buyQty, drops, locked: globalLock = false
   };
 
   return (
-    <div className="nsp-t2-panel">
+    <div className="nsp-t2-panel" ref={t2CardRef}>
       {/* Toolbar */}
       <div className="nsp-t2-toolbar">
         <div className="nsp-t2-tb-group">
@@ -2131,7 +2333,11 @@ function Tier2OverrideGrid({ included, buyQty, drops, locked: globalLock = false
             />
               </div>
 
-          <div className="nsp-t2-grid-wrap">
+          <div
+            className="nsp-t2-grid-wrap"
+            ref={t2WrapRef}
+            style={t2WrapMaxHeight ? { maxHeight: `${t2WrapMaxHeight}px` } : undefined}
+          >
             <div className="nsp-t2-grid-scroll">
               <div className="nsp-t2-table" style={{ minWidth: `${gridMinWidth}px` }}>
                 <div className="nsp-t2-thead" style={{ gridTemplateColumns: gridTemplate }}>
@@ -2161,17 +2367,18 @@ function Tier2OverrideGrid({ included, buyQty, drops, locked: globalLock = false
                   <span className="nsp-t2-td-action" />
             </div>
 
-                {Object.entries(groups).map(([groupName, skus]) => (
+                {Object.entries(pagedGroups).map(([groupName, pagedSkus]) => (
                   <div key={groupName}>
                     {showSub && (
                       <div className="nsp-t2-row nsp-t2-row-group" style={{ gridTemplateColumns: gridTemplate }}>
                         <span className="nsp-t2-td-check" />
                         <span className="nsp-t2-td-label">{groupName}</span>
-                        {activeMetrics.flatMap(m => renderAggCells(skus, m, true))}
+                        {/* Subtotal always reflects the full filtered group, not just this page */}
+                        {activeMetrics.flatMap(m => renderAggCells(groups[groupName] || pagedSkus, m, true))}
                         <span className="nsp-t2-td-action" />
               </div>
                     )}
-                    {skus.map(sku => {
+                    {pagedSkus.map(sku => {
                       const status = rowStatus[sku.id] || "pending";
                       const rowLocked = globalLock || status === "accepted";
                       return (
@@ -2180,7 +2387,7 @@ function Tier2OverrideGrid({ included, buyQty, drops, locked: globalLock = false
                             <input type="checkbox" checked={selected.has(sku.id)} disabled={globalLock} onChange={() => toggleSelect(sku.id)} aria-label={`Select ${sku.sku}`} />
                           </span>
                           <span className="nsp-t2-td-label nsp-t2-td-item-label">
-                            <Tooltip content={sku.description} placement="top">
+                            <Tooltip title={sku.description} orientation="top" variant="secondary" trigger="hover">
                               <span className="nsp-t2-item-name">{sku.description}</span>
                             </Tooltip>
                           </span>
@@ -2206,8 +2413,16 @@ function Tier2OverrideGrid({ included, buyQty, drops, locked: globalLock = false
               </div>
               </div>
             </div>
-          </div>
+            <TablePager
+              page={t2PageClamped}
+              pageSize={t2PageSize}
+              totalRows={filteredSKUs.length}
+              onPageChange={setT2Page}
+              onPageSizeChange={setT2PageSize}
+              noun="SKUs"
+            />
             </div>
+          </div>
 
       {/* Double-click override popover (reason required) */}
       {editing && (() => {
@@ -2243,7 +2458,7 @@ function Tier2OverrideGrid({ included, buyQty, drops, locked: globalLock = false
               <div className="nsp-t2-edit-actions">
                 <Button variant="ghost" size="small" onClick={() => setEditing(null)}>Cancel</Button>
                 <Button variant="primary" size="small" disabled={!editReason} onClick={commitEdit}>Save override</Button>
-              </div>
+            </div>
             </div>
           </>
         );
@@ -2254,6 +2469,12 @@ function Tier2OverrideGrid({ included, buyQty, drops, locked: globalLock = false
 
 // ─── Tier 3: Weekly WSSI Buy Quantification Engine ─────────────────────────────
 function Tier3WssiEngine({ included, locked = false }) {
+  // The panel never scrolls — only the metric grid does, capped to
+  // whatever room is actually left in the viewport.
+  const t3CardRef = useRef(null);
+  const t3ScrollRef = useRef(null);
+  const t3ScrollMaxHeight = useViewportCappedHeight(t3ScrollRef, t3CardRef, { minHeight: 420 });
+
   const [skuId, setSkuId] = useState(() => included[0]?.id);
   const sku = included.find(s => s.id === skuId) || included[0];
 
@@ -2303,14 +2524,14 @@ function Tier3WssiEngine({ included, locked = false }) {
   ];
 
   return (
-    <div className="nsp-t3-panel">
+    <div className="nsp-t3-panel" ref={t3CardRef}>
       <div className="nsp-t3-header">
         <div className="nsp-t3-header-left">
           <div className="nsp-t3-header-icon"><Layers size={15} /></div>
           <div>
             <div className="nsp-t3-title">Weekly Buy Quantification Engine</div>
             <div className="nsp-t3-sub">W1–W10 opening lifecycle · Store-Item-Week retail math</div>
-            </div>
+              </div>
           </div>
         <FdSelect
           value={skuId}
@@ -2318,14 +2539,14 @@ function Tier3WssiEngine({ included, locked = false }) {
           onChange={setSkuId}
           width={320}
         />
-        </div>
+            </div>
 
       <div className="nsp-t3-controls">
         <div className="nsp-t3-ctrl">
           <span className="nsp-t3-ctrl-label">Elasticity Coefficient</span>
           <input className="nsp-t3-input nsp-t3-input-sm" type="number" step="0.5" min={0} disabled={locked}
             value={elasticity} onChange={e => setElasticity(Number(e.target.value) || 0)} />
-        </div>
+            </div>
         <div className="nsp-t3-ctrl">
           <span className="nsp-t3-ctrl-label">Weekly Base Demand (units)</span>
           <input className="nsp-t3-input nsp-t3-input-sm" type="number" min={1} disabled={locked}
@@ -2334,22 +2555,26 @@ function Tier3WssiEngine({ included, locked = false }) {
         <div className="nsp-t3-ctrl-hint">
           <AlertTriangle size={12} />
           Editing Week Type, Discount%, Elasticity, or Base Demand recalculates ASP → GM% → Sales Lift → Intake → EOH live.
+          </div>
         </div>
-      </div>
 
-      <div className="nsp-t3-table-scroll">
+      <div
+        className="nsp-t3-table-scroll"
+        ref={t3ScrollRef}
+        style={t3ScrollMaxHeight ? { maxHeight: `${t3ScrollMaxHeight}px` } : undefined}
+      >
         <div className="nsp-t3-table">
           <div className="nsp-t3-row nsp-t3-row-head">
             <span className="nsp-t3-td-label">Metric</span>
             {weeks.map(t => <span key={t} className="nsp-t3-th">W{t + 1}</span>)}
-          </div>
+        </div>
           {metricRows.map(row => (
             <div key={row.key} className={`nsp-t3-row ${row.highlight ? "nsp-t3-row-highlight" : ""} ${row.editable ? "nsp-t3-row-editable" : ""}`}>
               <span className="nsp-t3-td-label">{row.label}</span>
               {weeks.map(t => (
                 <span key={t} className={`nsp-t3-td ${row.warn && row.warn(t) ? "nsp-eng-warn" : ""}`}>{row.render(t)}</span>
               ))}
-            </div>
+      </div>
           ))}
         </div>
       </div>
@@ -2359,6 +2584,52 @@ function Tier3WssiEngine({ included, locked = false }) {
 
 function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, initialSnapshot }) {
   const stance = scopeForm?.stance || "balanced";
+
+  // ── Stacked sticky header ──
+  // Title bar + context bar, the tab strip, and the KPI summary (health
+  // banner + health cards) all freeze in a stack while only the SKU table
+  // scrolls beneath. Each layer's height is content-dependent (long
+  // scenario names, wrapped buttons, etc.), so heights are measured live
+  // with ResizeObserver rather than hardcoded, and fed down as CSS vars.
+  const stickyHeadRef = useRef(null);
+  const tabsWrapRef = useRef(null);
+  const [tabNavOffset, setTabNavOffset] = useState(112);
+  const [kpiStickyOffset, setKpiStickyOffset] = useState(156);
+  useLayoutEffect(() => {
+    const headEl = stickyHeadRef.current;
+    const tabsEl = tabsWrapRef.current;
+    if (!headEl || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const headH = headEl.offsetHeight;
+      setTabNavOffset(headH);
+      const tabStripEl = tabsEl?.querySelector(".nsp-t1-tabstrip");
+      const tabStripH = tabStripEl ? tabStripEl.getBoundingClientRect().height : 36;
+      // Flush against the tab strip's own stuck bottom edge — any gap here
+      // is unfilled by either sticky layer, letting scrolled-past content
+      // flash through for a frame.
+      setKpiStickyOffset(headH + Math.ceil(tabStripH));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(headEl);
+    if (tabsEl) ro.observe(tabsEl);
+    return () => ro.disconnect();
+  }, []);
+
+  // The card itself never scrolls — only the SKU table does, capped to
+  // whatever vertical room is actually left below it in the viewport.
+  const cardRef = useRef(null);
+  const tableWrapRef = useRef(null);
+  // Floor is generous enough to comfortably fit a full 10-row page
+  // (header + rows + pager) without needing its own inner scrollbar on
+  // typical viewports — the live viewport-fit calc still wins when there's
+  // even more room to give it.
+  // Floor kept modest so the wrap always fits the viewport below the (now
+  // taller) frozen header — the live viewport-fit calc gives it more room
+  // whenever there is any, and the rows scroll internally with the pager
+  // pinned directly beneath them. A larger floor here would force the wrap
+  // past the fold, hiding rows behind the sticky header.
+  const tableMaxHeight = useViewportCappedHeight(tableWrapRef, cardRef, { minHeight: 320 });
 
   // Score + enrich every candidate SKU (static per scope)
   const scoredSKUs = useMemo(() => SOLID_PREFINISHED_CANDIDATES.map(sku => {
@@ -2377,15 +2648,26 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
 
   const included = useMemo(() => scoredSKUs.filter(s => s.rec === "add"), [scoredSKUs]);
 
+  // ── Line-plan grid pagination ──
+  const [t1Page, setT1Page]         = useState(1);
+  const [t1PageSize, setT1PageSize] = useState(10);
+  useEffect(() => { setT1Page(1); }, [t1PageSize]);
+  const t1TotalPages  = Math.max(1, Math.ceil(scoredSKUs.length / t1PageSize));
+  const t1PageClamped = Math.min(t1Page, t1TotalPages);
+  const pagedSKUs = useMemo(
+    () => scoredSKUs.slice((t1PageClamped - 1) * t1PageSize, t1PageClamped * t1PageSize),
+    [scoredSKUs, t1PageClamped, t1PageSize],
+  );
+
   // ── Editable state (seeded from a re-opened snapshot when present) ──
   const [activeTier, setActiveTier] = useState("tier1");
+  const [reconOpen, setReconOpen] = useState(false);
   const [tier1Finalized, setTier1Finalized] = useState(false);
-  const [roles, setRoles] = useState(() => initialSnapshot?.tier1?.roles || {});
   const [drops, setDrops] = useState(() => initialSnapshot?.tier1?.drops || {});
   const [buyQty, setBuyQty] = useState(() => {
     if (initialSnapshot?.tier1?.buyQty) return initialSnapshot.tier1.buyQty;
     const seed = {};
-    scoredSKUs.forEach(s => { if (s.rec === "add") seed[s.id] = s.target; });
+    scoredSKUs.forEach(s => { if (s.rec === "add") seed[s.id] = computeWssiIntakeTotal(s); });
     return seed;
   });
 
@@ -2417,10 +2699,6 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
   const [tier2Report, setTier2Report] = useState(null);   // { rows:[{sku,metric,month,ag,wp,reason}] }
   const savedTickRef = useRef(null);
 
-  const setRole = (id, v) => { if (!locked) setRoles(prev => ({ ...prev, [id]: v })); };
-  const setDrop = (id, v) => { if (!locked) setDrops(prev => ({ ...prev, [id]: v })); };
-  const setQty  = (id, v) => { if (!locked) setBuyQty(prev => ({ ...prev, [id]: v })); };
-
   // ── Live aggregates (recompute whenever buyQty / drops change) ──
   const agg = useMemo(() => {
     let otbUsed = 0, alignSum = 0, below = 0, marginNum = 0, marginDen = 0;
@@ -2450,17 +2728,75 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
 
   const marginGap = agg.blendedMargin - constraints.marginFloor;
 
-  // Align All → set every buy qty to its market target
-  const handleAlignAll = () => {
-    setBuyQty(prev => {
-      const next = { ...prev };
-      included.forEach(s => { next[s.id] = s.target; });
-      return next;
-    });
-  };
+  // Close the reconciliation drawer on Escape for a polished slide-over feel.
+  useEffect(() => {
+    if (!reconOpen) return;
+    const onKey = e => { if (e.key === "Escape") setReconOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [reconOpen]);
 
   const otbBudgetK = (constraints.otbBudget / 1000).toFixed(1);
   const otbRemainK = (agg.otbRemaining / 1000).toFixed(1);
+  const otbCommittedK = (agg.otbUsed / 1000).toFixed(1);
+
+  // ── Reconciliation dashboard aggregates (space, attribute mix, depth/breadth,
+  //    hierarchy roll-up) — all derived from the same live assorted set + buy qty. ──
+  const recon = useMemo(() => {
+    const { good, better, best, bays, sqftPerBay, linearFtPerBay } = constraints;
+
+    // Physical space vs. capital
+    const baysUsed = agg.wpAssorted;
+    const space = {
+      baysUsed, baysMax: bays,
+      overCapacity: baysUsed > bays,
+      baysPct:      Math.min(100, Math.round(baysUsed / bays * 100)),
+      sqftUsed:     baysUsed * sqftPerBay, sqftMax: bays * sqftPerBay,
+      linearFtUsed: baysUsed * linearFtPerBay, linearFtMax: bays * linearFtPerBay,
+    };
+
+    // Attribute distribution (by option count across assorted SKUs)
+    const bySpecies = {}, byColor = {}, byGBB = { Good: 0, Better: 0, Best: 0 };
+    let totalUnits = 0;
+    included.forEach(s => {
+      const q = buyQty[s.id] ?? s.target;
+      totalUnits += q;
+      bySpecies[s.species]     = (bySpecies[s.species]     || 0) + 1;
+      byColor[s.colorFamily]   = (byColor[s.colorFamily]   || 0) + 1;
+      if (byGBB[s.gbbTier] !== undefined) byGBB[s.gbbTier] += 1;
+    });
+    const n = included.length || 1;
+    const gbbPct    = { Good: Math.round(byGBB.Good / n * 100), Better: Math.round(byGBB.Better / n * 100), Best: Math.round(byGBB.Best / n * 100) };
+    const gbbTarget = { Good: good, Better: better, Best: best };
+    const gbbBalanced = Math.abs(gbbPct.Good - good) <= 8 && Math.abs(gbbPct.Better - better) <= 8 && Math.abs(gbbPct.Best - best) <= 8;
+
+    // Depth & breadth (mirrors the old Step-4 strip; units now WSSI-derived)
+    const breadth      = agg.wpAssorted;
+    const avgUnits     = breadth ? Math.round(totalUnits / breadth) : 0;
+    const expectedTurn = agg.blendedMargin > 0 ? (agg.blendedMargin * 8).toFixed(1) : "—";
+
+    // Hierarchical roll-up by Category (product class = species class)
+    const groups = {};
+    included.forEach(s => {
+      const key = s.productClass;
+      if (!groups[key]) groups[key] = { category: key, species: s.species, options: 0, otbCommitted: 0 };
+      const q = buyQty[s.id] ?? s.target;
+      groups[key].options      += 1;
+      groups[key].otbCommitted += q * s.cost;
+    });
+    const rollup = Object.values(groups)
+      .map(g => ({ ...g, bays: g.options, sqft: g.options * sqftPerBay }))
+      .sort((a, b) => b.otbCommitted - a.otbCommitted);
+    const rollupTotal = { options: agg.wpAssorted, otbCommitted: agg.otbUsed, bays: baysUsed, sqft: space.sqftUsed };
+
+    return {
+      otbStatus: agg.otbRemaining >= 0 ? "Surplus" : "Deficit",
+      space,
+      mix: { bySpecies, byColor, byGBB, gbbPct, gbbTarget, gbbBalanced },
+      depthBreadth: { breadth, avgUnits, totalUnits, expectedTurn },
+      rollup, rollupTotal,
+    };
+  }, [included, buyQty, agg, constraints]);
 
   // ── Health detail cards (fed from live aggregates) ──
   const healthCards = [
@@ -2481,20 +2817,20 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
       icon:  <TrendingUp size={14} />,
     },
     {
-      label: "Options Assorted",
-      value: `${agg.wpAssorted}`,
-      sub:   `of ${constraints.maxSKUs} max`,
-      pct:   Math.round(agg.wpAssorted / constraints.maxSKUs * 100),
-      grade: "pass",
-      icon:  <Store size={14} />,
+      label: "Bays Used",
+      value: `${recon.space.baysUsed}`,
+      sub:   `of ${constraints.bays} bays`,
+      pct:   recon.space.baysPct,
+      grade: recon.space.overCapacity ? "fail" : "pass",
+      icon:  <Grid3x3 size={14} />,
     },
     {
-      label: "Strategy Alignment",
-      value: `${agg.alignmentPct}%`,
-      sub:   `${included.filter(s => s.score >= 70).length} high-confidence`,
-      pct:   agg.alignmentPct,
-      grade: agg.alignmentPct >= 75 ? "pass" : "fail",
-      icon:  <CheckCircle size={14} />,
+      label: "GBB Mix",
+      value: `${recon.mix.gbbPct.Good}/${recon.mix.gbbPct.Better}/${recon.mix.gbbPct.Best}`,
+      sub:   `tgt ${recon.mix.gbbTarget.Good}/${recon.mix.gbbTarget.Better}/${recon.mix.gbbTarget.Best}`,
+      pct:   100,
+      grade: Math.abs(recon.mix.gbbPct.Good - recon.mix.gbbTarget.Good) <= 8 ? "pass" : "fail",
+      icon:  <Layers size={14} />,
     },
   ];
 
@@ -2518,7 +2854,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
     version:      extra.version ?? version,
     updatedAt:    Date.now(),
     metrics:      buildMetrics(),
-    tier1:        { roles, drops, buyQty },
+    tier1:        { drops, buyQty },
     constraints:  extra.constraints ?? constraints,
     clusterCfg:   extra.clusterCfg ?? clusterCfg,
     signOffNotes: extra.signOffNotes ?? signOffNotes,
@@ -2783,165 +3119,371 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
   // ── Tier 1 panel content ──
   const tier1Panel = (
     <div className="nsp-t1-panel">
-      {/* Strategic health header banner */}
-      <div className={`nsp-t1-health-banner ${agg.exceeded ? "exceeded" : ""}`}>
-        <div className="nsp-t1-hb-otb">
-          <div className="nsp-t1-hb-otb-top">
-            <span className="nsp-t1-hb-title">OTB Remaining</span>
-            <span className="nsp-t1-hb-otb-val">${otbRemainK}k <span className="nsp-t1-hb-otb-cap">of ${otbBudgetK}k</span></span>
-            {agg.exceeded && <Badge label="EXCEEDED" color="error" variant="solid" size="small" />}
+      {/* Sticky KPI stack — health banner + health cards freeze beneath the
+          tab strip while only the SKU table scrolls underneath. */}
+      <div className="nsp-t1-sticky-kpis">
+        <div className="nsp-t1-kpi-inner">
+        {/* Executive Open-To-Buy headline */}
+        <Card size="small" sx={{ ...panelSx, padding: 0, overflow: "hidden" }}>
+        <div className={`nsp-t1-otb-hero ${agg.exceeded ? "deficit" : "surplus"}`}>
+          <div className="nsp-t1-otb-hero-main">
+            <span className="nsp-t1-otb-hero-lbl">Remaining Open-To-Buy</span>
+            <div className="nsp-t1-otb-hero-figure">
+              <span className="nsp-t1-otb-hero-val">${otbRemainK}k</span>
+              <Badge
+                label={agg.exceeded ? "Deficit" : "Surplus"}
+                color={agg.exceeded ? "error" : "success"}
+                variant="subtle"
+                size="small"
+              />
           </div>
-          <div className="nsp-t1-hb-bar-track">
-            <div
-              className="nsp-t1-hb-bar-fill"
-              style={{ width: `${agg.otbPct}%`, background: agg.exceeded ? "#dc2626" : "linear-gradient(90deg, #4f46e5, #818cf8)" }}
-            />
+                    </div>
+          <div className="nsp-t1-otb-hero-eq">
+            <span className="nsp-t1-otb-eq-part">
+              <span className="nsp-t1-otb-eq-num">${otbBudgetK}k</span>
+              <span className="nsp-t1-otb-eq-lbl">Total Budget</span>
+            </span>
+            <span className="nsp-t1-otb-eq-op">−</span>
+            <span className="nsp-t1-otb-eq-part">
+              <span className="nsp-t1-otb-eq-num">${otbCommittedK}k</span>
+              <span className="nsp-t1-otb-eq-lbl">Committed</span>
+            </span>
+            <span className="nsp-t1-otb-eq-op">=</span>
+            <span className="nsp-t1-otb-eq-part">
+              <span className={`nsp-t1-otb-eq-num ${agg.exceeded ? "neg" : "pos"}`}>${otbRemainK}k</span>
+              <span className="nsp-t1-otb-eq-lbl">Remaining</span>
+            </span>
                     </div>
                     </div>
-        <div className="nsp-t1-hb-divider" />
-        <div className="nsp-t1-hb-stats">
-          <div className="nsp-t1-hb-stat">
-            <span className="nsp-t1-hb-stat-val">{agg.wpAssorted}</span>
-            <span className="nsp-t1-hb-stat-lbl">WP Assorted</span>
+        </Card>
+
+        {/* Health detail cards */}
+        <div className="nsp-eng-health-row">
+          {healthCards.map(hc => {
+            const gradeColor = hc.grade === "pass" ? "#059669" : "#dc2626";
+            return (
+              <Card key={hc.label} size="small" sx={{ ...panelSx, padding: "16px 18px" }}>
+                <div className="nsp-eng-hcard-top">
+                  <div className="nsp-eng-hcard-icon" style={{ color: gradeColor }}>{hc.icon}</div>
+                  <span className="nsp-eng-hcard-label">{hc.label}</span>
+                  <Badge
+                    label={hc.grade === "pass" ? "PASS" : "FAIL"}
+                    color={hc.grade === "pass" ? "success" : "error"}
+                    variant="subtle"
+                    size="small"
+                  />
                     </div>
-          <div className="nsp-t1-hb-stat">
-            <span className="nsp-t1-hb-stat-val">{agg.alignmentPct}%</span>
-            <span className="nsp-t1-hb-stat-lbl">Alignment</span>
+                <div className="nsp-eng-hcard-value">{hc.value}</div>
+                <div className="nsp-eng-hcard-sub">{hc.sub}</div>
+                <div className="nsp-eng-hcard-bar-track">
+                  <div className="nsp-eng-hcard-bar-fill" style={{ width: `${hc.pct}%`, background: gradeColor }} />
                     </div>
-          <div className="nsp-t1-hb-stat">
-            <span className="nsp-t1-hb-stat-val">{agg.dropsCount}</span>
-            <span className="nsp-t1-hb-stat-lbl">Drops</span>
-                    </div>
-          <div className="nsp-t1-hb-stat">
-            <span className="nsp-t1-hb-stat-val">{agg.mandatoryCount}</span>
-            <span className="nsp-t1-hb-stat-lbl">Mandatory</span>
-                    </div>
-                    </div>
+              </Card>
+            );
+          })}
                     </div>
 
-      {/* Agent market-potential alert */}
-      {agg.belowCount > 0 && (
-        <div className="nsp-t1-agent-alert">
-          <div className="nsp-t1-agent-left">
-            <div className="nsp-t1-agent-icon"><Sparkles size={15} /></div>
-            <div className="nsp-t1-agent-copy">
-              <span className="nsp-t1-agent-title">Agent Insight: {agg.belowCount} item{agg.belowCount > 1 ? "s" : ""} below market potential</span>
-              <span className="nsp-t1-agent-sub">Market potential should guide buy quantity — align to capture full local demand.</span>
+        {/* View More → opens the reconciliation & attribute-mix side panel */}
+                      <button
+                        type="button"
+          className="nsp-recon-viewmore"
+          onClick={() => setReconOpen(true)}
+        >
+          <span className="nsp-recon-viewmore-left">
+            <LayoutDashboard size={15} />
+            <span className="nsp-recon-viewmore-text">
+              <span className="nsp-recon-viewmore-title">Reconciliation &amp; Attribute Mix</span>
+              <span className="nsp-recon-viewmore-sub">Space vs. capital · OTB roll-up · distribution</span>
+            </span>
+          </span>
+          <span className="nsp-recon-viewmore-right">
+            {recon.space.overCapacity && (
+              <Badge label="Over Capacity" color="error" variant="subtle" size="small" />
+            )}
+            {agg.exceeded && (
+              <Badge label="OTB Deficit" color="error" variant="subtle" size="small" />
+            )}
+            {!recon.space.overCapacity && !agg.exceeded && (
+              <Badge label="Balanced" color="success" variant="subtle" size="small" />
+            )}
+            <span className="nsp-recon-viewmore-cta">View More <ChevronRight size={14} /></span>
+          </span>
+        </button>
+                    </div>
                   </div>
+
+      {/* ── Reconciliation & Attribute Mix — right-side slide-over panel ──────── */}
+      {reconOpen && (
+      <div className="nsp-recon-drawer-backdrop" onClick={() => setReconOpen(false)}>
+      <div className="nsp-recon-drawer" onClick={e => e.stopPropagation()}>
+        <div className="nsp-recon-drawer-header">
+          <div className="nsp-recon-drawer-header-left">
+            <div className="nsp-recon-drawer-icon"><LayoutDashboard size={16} /></div>
+            <div>
+              <div className="nsp-recon-drawer-title">Reconciliation &amp; Attribute Mix</div>
+              <div className="nsp-recon-drawer-sub">{store?.name || "New Store"} · {scopeForm?.department || "Hardwood Flooring"} · Live plan reconciliation</div>
           </div>
-          <Button variant="primary" size="small" icon={<Zap size={13} />} iconPlacement="left" onClick={handleAlignAll}>
-            Align All
-          </Button>
         </div>
+          <span className="nsp-recon-drawer-header-right">
+            {recon.space.overCapacity && (
+              <Badge label="Over Capacity" color="error" variant="subtle" size="small" />
+            )}
+            {agg.exceeded && (
+              <Badge label="OTB Deficit" color="error" variant="subtle" size="small" />
+            )}
+            {!recon.space.overCapacity && !agg.exceeded && (
+              <Badge label="Balanced" color="success" variant="subtle" size="small" />
+            )}
+            <button className="nsp-recon-drawer-close" onClick={() => setReconOpen(false)}><X size={16} /></button>
+          </span>
+          </div>
+
+        <div className="nsp-recon-body">
+            {/* Depth & breadth strip */}
+            <div className="nsp-recon-db-strip">
+              <div className="nsp-recon-db-item">
+                <span className="nsp-recon-db-val">{recon.depthBreadth.breadth}</span>
+                <span className="nsp-recon-db-lbl">Breadth (Styles)</span>
+            </div>
+              <div className="nsp-recon-db-item">
+                <span className="nsp-recon-db-val">{recon.depthBreadth.avgUnits}</span>
+                <span className="nsp-recon-db-lbl">Avg Units / Style</span>
+            </div>
+              <div className="nsp-recon-db-item">
+                <span className="nsp-recon-db-val">{recon.depthBreadth.totalUnits.toLocaleString()}</span>
+                <span className="nsp-recon-db-lbl">Total Units</span>
+              </div>
+              <div className="nsp-recon-db-item">
+                <span className="nsp-recon-db-val">{recon.depthBreadth.expectedTurn}×</span>
+                <span className="nsp-recon-db-lbl">Expected Turn</span>
+              </div>
+          </div>
+
+            <div className="nsp-recon-grid">
+              {/* Space vs Capital */}
+              <Card size="small" sx={{ ...panelSx, padding: "16px 18px" }}>
+                <div className="nsp-recon-card-head">
+                  <span className="nsp-recon-card-title">Space vs. Capital</span>
+                  {recon.space.overCapacity
+                    ? <Badge label="Over Capacity" color="error" variant="subtle" size="small" />
+                    : <Badge label="Within Layout" color="success" variant="subtle" size="small" />}
+                </div>
+                <div className="nsp-recon-space-bays">
+                  <span className="nsp-recon-space-bays-val">
+                    {recon.space.baysUsed} <span className="nsp-recon-space-bays-max">/ {recon.space.baysMax} bays</span>
+              </span>
+                  <span className="nsp-recon-space-bays-pct">{recon.space.baysPct}%</span>
+            </div>
+                <div className="nsp-recon-space-track">
+                  <div
+                    className="nsp-recon-space-fill"
+                    style={{ width: `${recon.space.baysPct}%`, background: recon.space.overCapacity ? "#dc2626" : "linear-gradient(90deg,#4f46e5,#818cf8)" }}
+                  />
+            </div>
+                <div className="nsp-recon-space-foot">
+                  <div className="nsp-recon-space-metric">
+                    <span className="nsp-recon-space-metric-val">{recon.space.sqftUsed.toLocaleString()}</span>
+                    <span className="nsp-recon-space-metric-lbl">of {recon.space.sqftMax.toLocaleString()} sq ft</span>
+          </div>
+                  <div className="nsp-recon-space-metric">
+                    <span className="nsp-recon-space-metric-val">{recon.space.linearFtUsed.toLocaleString()}</span>
+                    <span className="nsp-recon-space-metric-lbl">of {recon.space.linearFtMax.toLocaleString()} lin ft</span>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Attribute donuts */}
+              <Card size="small" sx={{ ...panelSx, padding: "16px 18px" }}>
+                <div className="nsp-recon-card-head">
+                  <span className="nsp-recon-card-title">Strategic Attribute Distribution</span>
+                  <Badge
+                    label={recon.mix.gbbBalanced ? "GBB Balanced" : "GBB Off-Target"}
+                    color={recon.mix.gbbBalanced ? "success" : "warning"}
+                    variant="subtle"
+                    size="small"
+                  />
+            </div>
+                <div className="nsp-recon-donuts">
+                  <ReconDonut
+                    title="By Category"
+                    data={Object.entries(recon.mix.bySpecies).map(([k, v]) => ({ name: k, y: v, color: SPECIES_COLORS[k] || "#94a3b8" }))}
+                  />
+                  <ReconDonut
+                    title="By Colour / Finish"
+                    data={["Natural", "Grey", "Dark"]
+                      .filter(k => recon.mix.byColor[k])
+                      .map(k => ({ name: k, y: recon.mix.byColor[k], color: COLORFAM_COLORS[k] }))}
+                  />
+                  <ReconDonut
+                    title="Price Architecture"
+                    note={`tgt ${recon.mix.gbbTarget.Good}/${recon.mix.gbbTarget.Better}/${recon.mix.gbbTarget.Best}`}
+                    data={["Good", "Better", "Best"]
+                      .filter(k => recon.mix.byGBB[k])
+                      .map(k => ({ name: k, y: recon.mix.byGBB[k], color: GBB_MIX_COLORS[k] }))}
+                  />
+            </div>
+              </Card>
+          </div>
+
+            {/* Hierarchy roll-up */}
+            <Card size="small" sx={{ ...panelSx, padding: "16px 18px" }}>
+              <div className="nsp-recon-card-head">
+                <span className="nsp-recon-card-title">Hierarchical Roll-Up</span>
+                <span className="nsp-recon-card-sub">Aggregated by Category · rolls up to Total Store</span>
+            </div>
+              <div className="nsp-recon-rollup">
+                <div className="nsp-recon-rollup-head">
+                  <span className="nsp-recon-ru-c nsp-recon-ru-cat">Category</span>
+                  <span className="nsp-recon-ru-c nsp-recon-ru-r">Options</span>
+                  <span className="nsp-recon-ru-c nsp-recon-ru-r">OTB Committed</span>
+                  <span className="nsp-recon-ru-c nsp-recon-ru-r">Bays</span>
+                  <span className="nsp-recon-ru-c nsp-recon-ru-r">Sq Ft</span>
+          </div>
+                {recon.rollup.map(r => (
+                  <div key={r.category} className="nsp-recon-rollup-row">
+                    <span className="nsp-recon-ru-c nsp-recon-ru-cat">{r.category}</span>
+                    <span className="nsp-recon-ru-c nsp-recon-ru-r">{r.options}</span>
+                    <span className="nsp-recon-ru-c nsp-recon-ru-r">${(r.otbCommitted / 1000).toFixed(1)}k</span>
+                    <span className="nsp-recon-ru-c nsp-recon-ru-r">{r.bays}</span>
+                    <span className="nsp-recon-ru-c nsp-recon-ru-r">{r.sqft.toLocaleString()}</span>
+          </div>
+                ))}
+                <div className="nsp-recon-rollup-row total">
+                  <span className="nsp-recon-ru-c nsp-recon-ru-cat">Total Store</span>
+                  <span className="nsp-recon-ru-c nsp-recon-ru-r">{recon.rollupTotal.options}</span>
+                  <span className="nsp-recon-ru-c nsp-recon-ru-r">${(recon.rollupTotal.otbCommitted / 1000).toFixed(1)}k</span>
+                  <span className="nsp-recon-ru-c nsp-recon-ru-r">{recon.rollupTotal.bays}</span>
+                  <span className="nsp-recon-ru-c nsp-recon-ru-r">{recon.rollupTotal.sqft.toLocaleString()}</span>
+        </div>
+      </div>
+            </Card>
+        </div>
+      </div>
+      </div>
       )}
 
-      {/* Health detail cards */}
-      <div className="nsp-eng-health-row">
-        {healthCards.map(hc => {
-          const gradeColor = hc.grade === "pass" ? "#059669" : "#dc2626";
-          return (
-            <div key={hc.label} className="nsp-eng-hcard">
-              <div className="nsp-eng-hcard-top">
-                <div className="nsp-eng-hcard-icon" style={{ color: gradeColor }}>{hc.icon}</div>
-                <span className="nsp-eng-hcard-label">{hc.label}</span>
-                <Badge
-                  label={hc.grade === "pass" ? "PASS" : "FAIL"}
-                  color={hc.grade === "pass" ? "success" : "error"}
-                  variant="subtle"
-                  size="small"
-                />
-          </div>
-              <div className="nsp-eng-hcard-value">{hc.value}</div>
-              <div className="nsp-eng-hcard-sub">{hc.sub}</div>
-              <div className="nsp-eng-hcard-bar-track">
-                <div className="nsp-eng-hcard-bar-fill" style={{ width: `${hc.pct}%`, background: gradeColor }} />
-            </div>
-            </div>
-          );
-        })}
-          </div>
-
-      {/* Strategic assortment table */}
-      <div className="nsp-t1-table-wrap">
+      {/* Strategic assortment table — capped so only the rows scroll,
+          never the page itself. */}
+      <div
+        className="nsp-t1-table-wrap"
+        ref={tableWrapRef}
+        style={tableMaxHeight ? { maxHeight: `${tableMaxHeight}px` } : undefined}
+      >
       <div className="nsp-t1-table">
         <div className="nsp-t1-thead">
           <span className="nsp-t1-th nsp-t1-th-style">Style · Colour</span>
-          <span className="nsp-t1-th">Dept</span>
+          <span className="nsp-t1-th">Department</span>
+          <span className="nsp-t1-th">Sub-Dept</span>
+          <span className="nsp-t1-th">Class</span>
+          <span className="nsp-t1-th">Sub-Class</span>
+          <span className="nsp-t1-th">Launch Date</span>
+          <span className="nsp-t1-th">End Date</span>
           <span className="nsp-t1-th">Type</span>
-          <span className="nsp-t1-th">Role</span>
-          <span className="nsp-t1-th">Drop</span>
-          <span className="nsp-t1-th nsp-t1-th-mkt">Mkt Potential</span>
           <span className="nsp-t1-th nsp-t1-th-c">Buy Qty</span>
           <span className="nsp-t1-th nsp-t1-th-r">APS</span>
           <span className="nsp-t1-th nsp-t1-th-r">ST%</span>
           <span className="nsp-t1-th nsp-t1-th-r">GM%</span>
           <span className="nsp-t1-th nsp-t1-th-c">Mandatory</span>
           <span className="nsp-t1-th nsp-t1-th-wp">WP Assorted</span>
+          <span className="nsp-t1-th nsp-t1-th-mkt">Mkt Potential</span>
         </div>
-        {scoredSKUs.map(sku => {
+        {pagedSKUs.map(sku => {
           const isIn = sku.rec === "add";
           const q = buyQty[sku.id] ?? sku.target;
-          const belowTarget = isIn && q < sku.target;
           const mktColor = sku.mktPotential >= 70 ? "#059669" : sku.mktPotential >= 45 ? "#d97706" : "#dc2626";
+          const thumb = SKU_THUMB_BY_SPECIES[sku.species];
+          // Market Potential is a weighted blend — surface the actual driver
+          // contributions so the hover tooltip is fully transparent.
+          const mktVelScore  = Math.round(Math.min(sku.peerVelocity / 140, 1) * 100);
+          const mktClimScore = Math.round(sku.climateFit * 100);
+          const mktSkuScore  = Math.round(computeSKUScore(sku));
+          const mktTooltip = (
+            <div className="nsp-t1-mkt-tip">
+              <div className="nsp-t1-mkt-tip-head">
+                <span className="nsp-t1-mkt-tip-title">Market Potential</span>
+                <span className="nsp-t1-mkt-tip-score" style={{ color: mktColor }}>{sku.mktPotential}<span className="nsp-t1-mkt-tip-of">/100</span></span>
+        </div>
+              <div className="nsp-t1-mkt-tip-sub">
+                Cold-start demand index for the Billings, MT 30-mi catchment. With no local sales history,
+                signals are proxied from the weighted peer-store pool and enriched market context.
+        </div>
+              <div className="nsp-t1-mkt-tip-rows">
+                <div className="nsp-t1-mkt-tip-row">
+                  <span className="nsp-t1-mkt-tip-w">45%</span>
+                  <span className="nsp-t1-mkt-tip-lbl">Peer sales velocity <em>(units/13wk, normalized to 140 cap)</em></span>
+                  <span className="nsp-t1-mkt-tip-v">{mktVelScore}</span>
+        </div>
+                <div className="nsp-t1-mkt-tip-row">
+                  <span className="nsp-t1-mkt-tip-w">35%</span>
+                  <span className="nsp-t1-mkt-tip-lbl">Climate / heating-season fit <em>(Zone 4b, semi-arid)</em></span>
+                  <span className="nsp-t1-mkt-tip-v">{mktClimScore}</span>
+      </div>
+                <div className="nsp-t1-mkt-tip-row">
+                  <span className="nsp-t1-mkt-tip-w">20%</span>
+                  <span className="nsp-t1-mkt-tip-lbl">SKU composite score <em>(margin · price tier · attributes)</em></span>
+                  <span className="nsp-t1-mkt-tip-v">{mktSkuScore}</span>
+                </div>
+              </div>
+              <div className="nsp-t1-mkt-tip-formula">
+                = 0.45×{mktVelScore} + 0.35×{mktClimScore} + 0.20×{mktSkuScore} → capped at 100
+              </div>
+            </div>
+          );
           return (
             <div key={sku.id} className={`nsp-t1-row ${isIn ? "" : "nsp-t1-row-dim"}`}>
               {/* Style-Colour */}
               <span className="nsp-t1-td nsp-t1-td-style">
-                <Tooltip content={sku.description} placement="top">
-                  <span className="nsp-t1-style-name">{sku.description}</span>
-                </Tooltip>
-                <span className="nsp-t1-style-code">{sku.sku}</span>
+                {thumb && (
+                  <span className="nsp-t1-thumb">
+                    <img src={thumb} alt={sku.species} />
+                  </span>
+                )}
+                <span className="nsp-t1-style-text">
+                  <Tooltip title={sku.description} orientation="top" variant="secondary" trigger="hover">
+                    <span className="nsp-t1-style-name">{sku.description}</span>
+                  </Tooltip>
+                  <span className="nsp-t1-style-code">{sku.sku}</span>
+                </span>
               </span>
-              {/* Dept */}
-              <span className="nsp-t1-td">
-                <Badge label={sku.species} color="default" variant="subtle" size="small" />
-              </span>
+              {/* Department */}
+              <span className="nsp-t1-td nsp-t1-td-muted">{sku.department}</span>
+              {/* Sub-Department */}
+              <span className="nsp-t1-td nsp-t1-td-muted">{sku.subDepartment}</span>
+              {/* Class */}
+              <span className="nsp-t1-td nsp-t1-td-muted">{sku.productClass}</span>
+              {/* Sub-Class */}
+              <span className="nsp-t1-td nsp-t1-td-muted">{sku.subClass}</span>
+              {/* Launch Date */}
+              <span className="nsp-t1-td nsp-t1-td-muted">{formatSkuDate(sku.launchDate)}</span>
+              {/* End Date */}
+              <span className="nsp-t1-td nsp-t1-td-muted">{formatEndDate(sku.endDate)}</span>
               {/* Type */}
               <span className="nsp-t1-td">
                 <Tag
-                  label={sku.lifecycle === "NPI" ? "New Option" : "Existing"}
+                  label={sku.lifecycle === "NPI" ? "New" : "Carryover"}
                   type={sku.lifecycle === "NPI" ? "info" : "default"}
                   variant="filled"
                   size="small"
                 />
               </span>
-              {/* Role */}
-              <span className="nsp-t1-td">
-                <FdSelect
-                  value={roles[sku.id] || (sku.mktPotential >= 75 ? "Hero" : isIn ? "Supporting" : "Filler")}
-                  options={ROLE_OPTIONS}
-                  onChange={v => setRole(sku.id, v)}
-                  width={124}
-                  minWidth={124}
-                  disabled={locked}
-                />
-              </span>
-              {/* Drop */}
-              <span className="nsp-t1-td">
-                <FdSelect
-                  value={drops[sku.id] || "Drop 1"}
-                  options={DROP_OPTIONS}
-                  onChange={v => setDrop(sku.id, v)}
-                  width={100}
-                  minWidth={100}
-                  disabled={locked}
-                />
-              </span>
-              {/* Mkt Potential */}
-              <span className="nsp-t1-td nsp-t1-td-mkt">
-                <div className="nsp-t1-mkt-track">
-                  <div className="nsp-t1-mkt-fill" style={{ width: `${sku.mktPotential}%`, background: mktColor }} />
-            </div>
-                <span className="nsp-t1-mkt-score" style={{ color: mktColor }}>{sku.mktPotential}</span>
-              </span>
-              {/* Buy Qty */}
+              {/* Buy Qty — read-only. Quantified downstream in the Tier 3 WSSI
+                  engine; Tier 1 mirrors that calculated intake as a locked value. */}
               <span className="nsp-t1-td nsp-t1-td-c">
                 {isIn ? (
-                  <div className={belowTarget ? "nsp-t1-qty-below" : ""}>
-                    <BuyQtySpinner value={q} onChange={v => setQty(sku.id, v)} disabled={locked} />
-            </div>
+                  <Tooltip
+                    title="Calculated downstream in the Tier 3 WSSI engine (Weeks-of-Cover + Presentation Stock). Adjust it there — Tier 1 is for option assortment, not quantification."
+                    orientation="top"
+                    variant="secondary"
+                    trigger="hover"
+                  >
+                    <span className="nsp-t1-qty-locked">
+                      <Lock size={11} />
+                      <span className="nsp-t1-qty-locked-val">{q}</span>
+                      <span className="nsp-t1-qty-locked-unit">units</span>
+                    </span>
+                  </Tooltip>
                 ) : (
-                  <span className="nsp-t1-muted">—</span>
+                  <Tag label="Unassigned" type="default" variant="subtle" size="small" />
                 )}
               </span>
               {/* APS */}
@@ -2964,10 +3506,29 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                   ? <span className="nsp-t1-wp-true"><Check size={13} /> True</span>
                   : <span className="nsp-t1-wp-false">— False</span>}
             </span>
-          </div>
-          );
+              {/* Mkt Potential (moved to end) — hover for calculation methodology */}
+              <span className="nsp-t1-td nsp-t1-td-mkt">
+                <Tooltip title={mktTooltip} orientation="left" variant="secondary" trigger="hover">
+                  <span className="nsp-t1-mkt-cell">
+                    <div className="nsp-t1-mkt-track">
+                      <div className="nsp-t1-mkt-fill" style={{ width: `${sku.mktPotential}%`, background: mktColor }} />
+      </div>
+                    <span className="nsp-t1-mkt-score" style={{ color: mktColor }}>{sku.mktPotential}</span>
+                  </span>
+                </Tooltip>
+              </span>
+    </div>
+  );
         })}
       </div>
+      <TablePager
+        page={t1PageClamped}
+        pageSize={t1PageSize}
+        totalRows={scoredSKUs.length}
+        onPageChange={setT1Page}
+        onPageSizeChange={setT1PageSize}
+        noun="SKUs"
+      />
       </div>
     </div>
   );
@@ -3004,19 +3565,19 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
       <div className="nsp-cst-cell nsp-cst-param">
         {param}
         {note && <span className="nsp-cst-note">{note}</span>}
-            </div>
+          </div>
       <div className="nsp-cst-cell nsp-cst-def">{def}</div>
       <div className="nsp-cst-cell nsp-cst-override">{children}</div>
       <div className="nsp-cst-cell nsp-cst-level">
         <Badge label={level} color={level.includes("Corporate") ? "default" : level.includes("Permanent") ? "info" : "default"} variant="stroke" size="small" />
-            </div>
+        </div>
       <div className="nsp-cst-cell nsp-cst-status">
         {modified
           ? <Badge label="Modified" color="warning" variant="subtle" size="small" />
           : <Badge label="Default" color="default" variant="subtle" size="small" />}
-          </div>
-    </div>
-  );
+        </div>
+      </div>
+    );
 
   const renderReconfigure = () => (
     <div className="nsp-recfg nsp-fade-up">
@@ -3060,17 +3621,17 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                 <div className="nsp-recfg-sliders">
                   {WEIGHT_META.map(w => {
                     const Icon = w.icon;
-                    return (
+    return (
                       <div className="nsp-recfg-slider-row" key={w.key}>
                         <div className="nsp-recfg-slider-lbl">
                           <span className="nsp-recfg-slider-name"><Icon size={13} /> {w.label}</span>
                           <span className="nsp-recfg-slider-desc">{w.desc}</span>
-                        </div>
+        </div>
                         <input type="range" min="0" max="100" value={clusterCfg.weights[w.key]}
                           className="nsp-recfg-slider" onChange={e => setWeight(w.key, parseInt(e.target.value, 10))} />
                         <span className="nsp-recfg-slider-val">{clusterCfg.weights[w.key]}%</span>
-                      </div>
-                    );
+      </div>
+    );
                   })}
         </div>
       </div>
@@ -3106,7 +3667,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                 <div className="nsp-recfg-panel-head">
                   <span className="nsp-recfg-panel-title"><Users size={13} /> Peer Store Pool &amp; Match Matrix</span>
                   <Badge label={`${clusterCfg.peers.filter(p => p.included).length} active`} color="info" variant="subtle" size="small" />
-                </div>
+        </div>
                 <div className="nsp-recfg-matrix">
                   <div className="nsp-recfg-matrix-head">
                     <span>Incl</span><span>Store / Location</span><span>Match</span><span>Role / Reason</span>
@@ -3117,7 +3678,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                         <button className={`nsp-recfg-check ${p.included ? "on" : ""}`} onClick={() => togglePeer(p.id)}
                           title={p.included ? "Exclude peer" : "Include peer"}>
                           {p.included ? <Check size={12} /> : <X size={12} />}
-        </button>
+          </button>
                       </span>
                       <span className="nsp-recfg-mx-store"><strong>{p.id}</strong> {p.loc}</span>
                       <span className="nsp-recfg-mx-score">{p.score.toFixed(1)}</span>
@@ -3125,16 +3686,16 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                         <span className="nsp-recfg-mx-role-name">{p.role}</span>
                         <span className="nsp-recfg-mx-role-reason">{p.reason}</span>
                       </span>
-      </div>
+        </div>
                   ))}
-    </div>
+      </div>
                 <div className="nsp-recfg-matrix-foot">
                   <Button variant="stroke" size="small" icon={<Plus size={13} />} iconPlacement="left" onClick={() => setAddPeerOpen(true)}>
                     Add Custom Peer Store
                   </Button>
                   <span className="nsp-recfg-matrix-foot-hint">Filter by Format · SqFt · Market Type</span>
+            </div>
                 </div>
-              </div>
             </div>
           </div>
         ) : (
@@ -3147,9 +3708,9 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                     icon={<Icon size={13} />} iconPlacement="left" onClick={() => setConstraintCat(c.value)}>
                     {c.label}
                   </Button>
-                );
-              })}
-            </div>
+              );
+            })}
+          </div>
 
             <div className="nsp-cst-table">
               <div className="nsp-cst-row nsp-cst-row-head">
@@ -3158,7 +3719,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                 <span className="nsp-cst-cell">Working Override</span>
                 <span className="nsp-cst-cell">Override Level</span>
                 <span className="nsp-cst-cell">Audit Status</span>
-              </div>
+            </div>
 
               {constraintCat === "financial" && <>
                 {renderConstraintRow({
@@ -3168,7 +3729,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                       <span className="nsp-cst-prefix">$</span>
                       <input type="number" step="1000" value={constraints.otbBudget}
                         onChange={e => setCap("otbBudget", parseFloat(e.target.value) || 0)} />
-                    </div>
+              </div>
                   ),
                 })}
                 {renderConstraintRow({
@@ -3178,7 +3739,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                       <input type="number" step="0.5" value={+(constraints.marginFloor * 100).toFixed(1)}
                         onChange={e => setCap("marginFloor", (parseFloat(e.target.value) || 0) / 100)} />
                       <span className="nsp-cst-suffix">%</span>
-                    </div>
+          </div>
                   ),
                 })}
               </>}
@@ -3191,7 +3752,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                       <input type="number" step="1" value={constraints.maxSKUs}
                         onChange={e => setCap("maxSKUs", parseInt(e.target.value, 10) || 0)} />
                       <span className="nsp-cst-suffix">SKUs</span>
-                    </div>
+        </div>
                   ),
                 })}
                 {renderConstraintRow({
@@ -3213,8 +3774,8 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                             <input type="number" step="5" value={constraints[k]}
                               onChange={e => setCap(k, parseInt(e.target.value, 10) || 0)} />
                             <span className="nsp-cst-suffix">%</span>
-                          </div>
-                        </div>
+            </div>
+            </div>
             ))}
           </div>
                   ),
@@ -3225,9 +3786,9 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                   children: <span className="nsp-cst-readonly nsp-cst-readonly-muted">Not enforced</span>,
                 })}
               </>}
-        </div>
           </div>
-          )}
+        </div>
+      )}
         </div>
 
       {/* Sticky retrigger dock */}
@@ -3276,13 +3837,13 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                 <span className="nsp-addpeer-filter-lbl"><Filter size={12} /> Format</span>
                 <FdSelect value={peerFilters.format} onChange={v => setPeerFilters(f => ({ ...f, format: v }))}
                   options={[{ value: "all", label: "All Formats" }, { value: "Warehouse", label: "Warehouse" }, { value: "Small-Fmt", label: "Small-Format" }]} />
-            </div>
+        </div>
               <div className="nsp-addpeer-filter">
                 <span className="nsp-addpeer-filter-lbl"><Globe size={12} /> Market Type</span>
                 <FdSelect value={peerFilters.market} onChange={v => setPeerFilters(f => ({ ...f, market: v }))}
                   options={[{ value: "all", label: "All Markets" }, ...MARKET_CONTEXTS.map(m => ({ value: m.label, label: m.label }))]} />
-                </div>
-          </div>
+      </div>
+      </div>
             <div className="nsp-addpeer-list">
               {filteredCandidates.length === 0
                 ? <div className="nsp-addpeer-empty">No candidate stores match these filters.</div>
@@ -3309,9 +3870,9 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
   );
 
   const tabNames = [
-    { label: "Tier 1: Line Plan & Architecture", value: "tier1" },
-    { label: "Tier 2: Override Grid",            value: "tier2" },
-    { label: "Tier 3: Weekly WSSI",              value: "tier3" },
+    { label: "Line Plan & Architecture",   value: "tier1" },
+    { label: "Financial Plan Reconciliation", value: "tier2" },
+    { label: "Weekly Buy Plan (WSSI)",      value: "tier3" },
   ];
   const tabPanels = [
     tier1Panel,
@@ -3327,67 +3888,76 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
   ];
 
   return (
-    <div className="nsp-eng-tier1 nsp-fade-up">
+    <div
+      className="nsp-eng-tier1 nsp-fade-up"
+      ref={cardRef}
+      style={{
+        "--nsp-t1-tabnav-top": `${tabNavOffset}px`,
+        "--nsp-t1-kpi-top": `${kpiStickyOffset}px`,
+      }}
+    >
 
-      {/* ── Tier header ──────────────────────────────────────────────────────── */}
-      <div className="nsp-eng-tier-header">
-        <div className="nsp-eng-tier-left">
-          <button className="nsp-eng-back-btn" onClick={onBack} title="Back to New Store Planning">
-            <ArrowLeft size={15} />
-          </button>
-          <div className="nsp-eng-tier-badge">TIER 1</div>
-          <div>
-            <div className="nsp-eng-tier-title">Line Plan & Architecture</div>
-            <div className="nsp-eng-tier-sub">
-              Smart Assortment Recommendation Engine · {scopeForm.scenarioName}
-            </div>
-            </div>
+      {/* ── Sticky head: tier title/actions + persistent context bar ─────────── */}
+      <div className="nsp-t1-sticky-head" ref={stickyHeadRef}>
+        <div className="nsp-eng-tier-header">
+          <div className="nsp-eng-tier-left">
+            <button className="nsp-eng-back-btn" onClick={onBack} title="Back to New Store Planning">
+              <ArrowLeft size={15} />
+            </button>
+            <div className="nsp-eng-tier-badge">ASSORTMENT</div>
+        <div>
+              <div className="nsp-eng-tier-title">Line Plan & Architecture</div>
+              <div className="nsp-eng-tier-sub">
+                Smart Assortment Recommendation Engine · {scopeForm.scenarioName}
           </div>
-        <div className="nsp-eng-tier-actions">
-          {locked ? (
-            <Button variant="primary" size="small" icon={<Lock size={13} />} iconPlacement="left" disabled>
-              Master Plan Locked
-            </Button>
-          ) : (
-            <>
-              <Button variant="ghost" size="small" icon={<RotateCcw size={13} />} iconPlacement="left" onClick={openReconfigure}>
-                Re-configure
-              </Button>
-              <Button
-                variant="stroke"
-                size="small"
-                icon={justSaved ? <Check size={13} /> : <Save size={13} />}
-                iconPlacement="left"
-                onClick={handleSaveScenario}
-              >
-                {justSaved ? "Saved" : "Save Scenario"}
-              </Button>
-              <Button
-                variant="stroke"
-                size="small"
-                icon={tier1Finalized ? <Check size={13} /> : <ArrowRight size={13} />}
-                iconPlacement="right"
-                onClick={() => { setTier1Finalized(true); setActiveTier("tier2"); }}
-              >
-                {tier1Finalized ? "Line Plan Finalized" : "Finalize Line Plan"}
-              </Button>
-              <Button
-                variant="primary"
-                size="small"
-                icon={<ShieldCheck size={13} />}
-                iconPlacement="left"
-                disabled={!tier1Finalized}
-                onClick={() => setSignOffOpen(true)}
-              >
-                Submit Approved Plan
-              </Button>
-            </>
-          )}
         </div>
+          </div>
+          <div className="nsp-eng-tier-actions">
+            {locked ? (
+              <Button variant="primary" size="small" icon={<Lock size={13} />} iconPlacement="left" disabled>
+                Master Plan Locked
+              </Button>
+            ) : (
+              <>
+                <Button variant="ghost" size="small" icon={<RotateCcw size={13} />} iconPlacement="left" onClick={openReconfigure}>
+                  Re-configure
+                </Button>
+                <Button
+                  variant="stroke"
+                  size="small"
+                  icon={justSaved ? <Check size={13} /> : <Save size={13} />}
+                  iconPlacement="left"
+                  onClick={handleSaveScenario}
+                >
+                  {justSaved ? "Saved" : "Save Scenario"}
+                </Button>
+                <Button
+                  variant="stroke"
+                  size="small"
+                  icon={tier1Finalized ? <Check size={13} /> : <ArrowRight size={13} />}
+                  iconPlacement="right"
+                  onClick={() => { setTier1Finalized(true); setActiveTier("tier2"); }}
+                >
+                  {tier1Finalized ? "Line Plan Finalized" : "Finalize Line Plan"}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="small"
+                  icon={<ShieldCheck size={13} />}
+                  iconPlacement="left"
+                  disabled={!tier1Finalized}
+                  onClick={() => setSignOffOpen(true)}
+                >
+                  Submit Approved Plan
+                </Button>
+              </>
+            )}
+          </div>
       </div>
 
-      {/* ── Persistent context bar ────────────────────────────────────────────── */}
-      {contextBar}
+        {/* ── Persistent context bar ──────────────────────────────────────────── */}
+        {contextBar}
+            </div>
 
       {/* ── Locked banner ─────────────────────────────────────────────────────── */}
       {locked && !reconfigOpen && !rerunning && (
@@ -3398,7 +3968,7 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
           <Button variant="ghost" size="small" icon={auditOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />} iconPlacement="right" onClick={() => setAuditOpen(v => !v)}>
             {auditOpen ? "Hide audit trail" : "Show audit trail"}
           </Button>
-        </div>
+          </div>
       )}
 
       {/* ── Post-finalization action bar ──────────────────────────────────────── */}
@@ -3430,9 +4000,9 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                 {compare.mode === "v2"
                   ? `Scenario v${compare.v2.version} created — v${compare.v1.version} baseline preserved`
                   : `Scenario v${compare.v2.version} overwritten with retriggered values`}
-        </div>
+            </div>
               <div className="nsp-cmp-sub">Side-by-side of the retriggered guardrails &amp; cluster context</div>
-      </div>
+          </div>
             <button className="nsp-cmp-close" onClick={() => setCompare(null)} title="Dismiss"><X size={14} /></button>
       </div>
           <div className="nsp-cmp-grid">
@@ -3450,14 +4020,14 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
                   <span className="nsp-cmp-row-v1">v{compare.v1.version}: {row.v1}</span>
                   <ArrowRight size={12} className="nsp-cmp-arrow" />
                   <span className="nsp-cmp-row-v2">v{compare.v2.version}: {row.v2}</span>
-    </div>
+          </div>
   );
             })}
-          </div>
+        </div>
           {compare.v2.excluded?.length > 0 && (
             <div className="nsp-cmp-excl">
               <Users size={12} /> Peers excluded: {compare.v2.excluded.join(", ")}
-            </div>
+      </div>
           )}
         </div>
       )}
@@ -3478,18 +4048,32 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
       {/* ── Reconfigure studios (Cluster / Constraints) ───────────────────────── */}
       {reconfigOpen && !rerunning && renderReconfigure()}
 
-      {/* ── Tier tabs ─────────────────────────────────────────────────────────── */}
+      {/* ── Tier tabs ──
+          A hand-rolled strip rather than the Impact UI <Tabs> component —
+          the library renders its tab list as a MUI `Tabs` root, and (verified
+          at length) that specific element never honors `position: sticky`
+          regardless of how it's styled, while a plain div in the exact same
+          slot sticks perfectly. Rolling our own keeps the same look/values
+          and guarantees the freeze-on-scroll behaviour actually works. */}
       {!reconfigOpen && !rerunning && (
-        <div className="nsp-t1-tabs">
-          <Tabs
-            tabNames={tabNames}
-            tabPanels={tabPanels}
-            value={activeTier}
-            onChange={(a, b) => {
-              const v = b !== undefined ? b : a;
-              setActiveTier(typeof v === "object" && v ? (v.value ?? v.target?.value) : v);
-            }}
-          />
+        <div className="nsp-t1-tabs" ref={tabsWrapRef}>
+          <div className="nsp-t1-tabstrip" role="tablist" aria-label="Assortment tiers">
+            {tabNames.map(t => (
+          <button
+                key={t.value}
+            type="button"
+                role="tab"
+                aria-selected={activeTier === t.value}
+                className={`nsp-t1-tabstrip-btn${activeTier === t.value ? " is-active" : ""}`}
+                onClick={() => setActiveTier(t.value)}
+              >
+                {t.label}
+          </button>
+            ))}
+          </div>
+          <div className="nsp-t1-tabpanel" role="tabpanel">
+            {tabPanels[tabNames.findIndex(t => t.value === activeTier)]}
+          </div>
         </div>
       )}
 
@@ -3578,7 +4162,6 @@ function Tier1LinePlan({ scopeForm, store, onReset, onBack, onSaveScenario, init
               { label: "Final SKU Count", value: `${agg.wpAssorted}`, sub: `of ${constraints.maxSKUs} max`, pass: agg.wpAssorted <= constraints.maxSKUs },
               { label: "OTB Committed", value: `$${(agg.otbUsed / 1000).toFixed(1)}k`, sub: `of $${otbBudgetK}k`, pass: !agg.exceeded },
               { label: "Blended Margin", value: `${(agg.blendedMargin * 100).toFixed(1)}%`, sub: `floor ${(constraints.marginFloor * 100).toFixed(0)}%`, pass: marginGap >= 0 },
-              { label: "Strategy Alignment", value: `${agg.alignmentPct}%`, sub: "peer-weighted", pass: agg.alignmentPct >= 75 },
             ].map(t => (
               <div key={t.label} className="nsp-signoff-tile">
                 <div className="nsp-signoff-tile-top">
@@ -3640,6 +4223,7 @@ export default function NewStorePlanningNew({ onNavigate }) {
 
   // Assortment engine state machine: landing | modal | running | tier1
   const [engineState, setEngineState] = useState("landing");
+  const [engineReady, setEngineReady] = useState(false);
   const [scopeForm, setScopeForm]     = useState(null);
 
   // ── Saved scenarios (persisted) ──
@@ -3691,6 +4275,7 @@ export default function NewStorePlanningNew({ onNavigate }) {
     timers.current = [];
     setLogs([]); setProgress(0);
     setEngineState("landing");
+    setEngineReady(false);
     setActiveSnapshot(null);
     if (!selectedId) { setPhase("idle"); return; }
     // Stage 1: load the store profile, then seamlessly continue into market-context hydration
@@ -3784,6 +4369,7 @@ export default function NewStorePlanningNew({ onNavigate }) {
 
   function handleLaunchEngine(form) {
     setScopeForm(form);
+    setEngineReady(false);
     setEngineState("running");
   }
 
@@ -3816,17 +4402,29 @@ export default function NewStorePlanningNew({ onNavigate }) {
         />
       )}
 
-      {/* ── Engine terminal ──────────────────────────────────────────────────── */}
+      {/* ── Engine run: CoT panel + inline recommendation (same page) ────────── */}
       {engineState === "running" && scopeForm && store && (
         <div className="nsp-eng-runner-wrap">
           <EngineTerminal
+            persistent
             scopeForm={scopeForm}
-            onComplete={() => setEngineState("tier1")}
+            onReady={() => setEngineReady(true)}
           />
+          {engineReady && (
+            <Tier1LinePlan
+              key={activeSnapshot?.id || scopeForm.scenarioName}
+              scopeForm={scopeForm}
+          store={store}
+              initialSnapshot={activeSnapshot}
+              onReset={() => { setScopeForm(null); setActiveSnapshot(null); setEngineReady(false); setEngineState("landing"); }}
+              onBack={() => { setEngineReady(false); setEngineState("landing"); }}
+              onSaveScenario={upsertScenario}
+            />
+          )}
         </div>
       )}
 
-      {/* ── Tier 1 Line Plan ─────────────────────────────────────────────────── */}
+      {/* ── Tier 1 Line Plan (reopened saved scenario — no CoT panel) ─────────── */}
       {engineState === "tier1" && scopeForm && store && (
         <Tier1LinePlan
           key={activeSnapshot?.id || scopeForm.scenarioName}

@@ -27,6 +27,7 @@ export default function FdSelect({
   isClearable = false,
   isWithSelectedOptionTags = false,
   disabled = false,
+  placeholder = "Select…",
 }) {
   // Impact UI's <Select> renders at whatever `minWidth` it's given — it does not
   // reliably expand to fill width="100%". So whenever we pass a numeric `width`
@@ -104,7 +105,7 @@ export default function FdSelect({
         label={label}
         isDisabled={disabled}
         labelOrientation="top"
-        placeholder="Select…"
+        placeholder={placeholder}
         isMulti={isMulti}
         isWithSearch={isWithSearch}
         searchPlaceholder="Search…"

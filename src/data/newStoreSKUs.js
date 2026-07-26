@@ -7,7 +7,30 @@
  *
  * All score / agentRec / reasonCodes values are computed live in Step4Screen via useMemo.
  * They are left null here to make the derivation transparent.
+ *
+ * Merchandise hierarchy + lifecycle-date fields:
+ *  - department / subDepartment mirror the active planning scope (Hardwood Flooring > Solid Prefinished).
+ *  - productClass maps 1:1 to the species-level class defined in the app's HIERARCHY constant.
+ *  - subClass captures the finish-level cut (Wirebrushed / Hand-Scraped / Smooth).
+ *  - launchDate / endDate are ISO strings; endDate defaults to a far-future 2099 date for
+ *    open-ended (non-discontinuing) options, and is pulled in for the two Clearance SKUs
+ *    that are already flagged with an auto-drop trigger below.
  */
+
+const DEPARTMENT     = "Hardwood Flooring";
+const SUB_DEPARTMENT = "Solid Prefinished";
+const FAR_FUTURE_END  = "2099-12-31";
+
+const classForSpecies = (species) => `Solid ${species} Prefinished`;
+
+// Roll a SKU's colour name (from its description) up into a presentation
+// colour family — Natural / Grey / Dark — used by the Colour & Finish mix donut.
+const colorFamilyForDescription = (desc) => {
+  const d = desc.toLowerCase();
+  if (/driftwood|gray|grey|smoke|gunmetal|ash/.test(d)) return "Grey";
+  if (/cognac|mocha|charcoal|ebony|espresso|walnut|graphite/.test(d)) return "Dark";
+  return "Natural"; // stone, natural, linen white, champagne
+};
 
 export const SOLID_PREFINISHED_CANDIDATES = [
   // ── Wirebrushed Oak (4 SKUs) ────────────────────────────────────────────────
@@ -28,6 +51,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: null,
     gbbTier: "Better",
     cartonSqft: 22.5,      // sqft per carton
+    launchDate: "2022-03-01",
+    endDate: FAR_FUTURE_END,
   },
   {
     id: "SP-002",
@@ -46,6 +71,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: null,
     gbbTier: "Better",
     cartonSqft: 22.5,
+    launchDate: "2022-03-01",
+    endDate: FAR_FUTURE_END,
   },
   {
     id: "SP-003",
@@ -64,6 +91,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: null,
     gbbTier: "Best",
     cartonSqft: 21.0,
+    launchDate: "2023-01-15",
+    endDate: FAR_FUTURE_END,
   },
   {
     id: "SP-004",
@@ -82,6 +111,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: null,
     gbbTier: "Best",
     cartonSqft: 21.0,
+    launchDate: "2023-01-15",
+    endDate: FAR_FUTURE_END,
   },
   // ── Hand-Scraped Hickory (3 SKUs) ───────────────────────────────────────────
   {
@@ -101,6 +132,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: null,
     gbbTier: "Good",
     cartonSqft: 23.5,
+    launchDate: "2021-08-01",
+    endDate: FAR_FUTURE_END,
   },
   {
     id: "SP-006",
@@ -119,6 +152,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: null,
     gbbTier: "Good",
     cartonSqft: 23.5,
+    launchDate: "2021-08-01",
+    endDate: FAR_FUTURE_END,
   },
   {
     id: "SP-007",
@@ -137,6 +172,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: null,
     gbbTier: "Good",
     cartonSqft: 22.0,
+    launchDate: "2026-08-01",
+    endDate: FAR_FUTURE_END,
   },
   // ── Smooth Maple (2 SKUs) ───────────────────────────────────────────────────
   {
@@ -156,6 +193,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: "LVP price overlap",  // conflicts with LVP Good tier ~$4.79
     gbbTier: "Good",
     cartonSqft: 24.0,
+    launchDate: "2022-11-01",
+    endDate: FAR_FUTURE_END,
   },
   {
     id: "SP-009",
@@ -174,6 +213,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: "LVP price overlap",
     gbbTier: "Good",
     cartonSqft: 24.0,
+    launchDate: "2020-05-01",
+    endDate: "2026-09-30",
   },
   // ── Engineered Veneer Crossover (3 SKUs) ────────────────────────────────────
   {
@@ -193,6 +234,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: null,
     gbbTier: "Better",
     cartonSqft: 21.5,
+    launchDate: "2023-06-01",
+    endDate: FAR_FUTURE_END,
   },
   {
     id: "SP-011",
@@ -211,6 +254,8 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: null,
     gbbTier: "Better",
     cartonSqft: 21.5,
+    launchDate: "2023-06-01",
+    endDate: FAR_FUTURE_END,
   },
   {
     id: "SP-012",
@@ -229,8 +274,17 @@ export const SOLID_PREFINISHED_CANDIDATES = [
     conflictFlag: "LVP price overlap",
     gbbTier: "Best",
     cartonSqft: 19.5,
+    launchDate: "2021-02-01",
+    endDate: "2026-09-30",
   },
-];
+].map(sku => ({
+  ...sku,
+  department: DEPARTMENT,
+  subDepartment: SUB_DEPARTMENT,
+  productClass: classForSpecies(sku.species),
+  subClass: sku.finish,
+  colorFamily: colorFamilyForDescription(sku.description),
+}));
 
 /**
  * Competing LVP / Vinyl lines — used for Cross-Category Mix check.

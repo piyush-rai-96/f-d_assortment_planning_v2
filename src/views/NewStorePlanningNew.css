@@ -668,6 +668,11 @@
   transition: width .8s cubic-bezier(.25,.1,.25,1);
   box-shadow: 0 0 6px rgba(99,102,241,.6);
 }
+/* Completed run — the caret bar reads as a calm "done" state */
+.nsp-term-progress-wrap.is-done .nsp-term-progress-bar {
+  background: linear-gradient(90deg, #16a34a, #22c55e);
+  box-shadow: 0 0 6px rgba(34,197,94,.55);
+}
 .nsp-term-pct {
   font-size: 11px;
   font-weight: 700;
@@ -676,6 +681,17 @@
   min-width: 32px;
   text-align: right;
 }
+
+/* Manual expand/collapse toggle — independent of the auto-advance flow,
+   lets a planner tuck the log away (or reopen it) at any point, running
+   or complete. */
+.nsp-term-toggle {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0;
+  background: transparent; border: 1px solid #1e293b;
+  color: #64748b; cursor: pointer; transition: all .13s;
+}
+.nsp-term-toggle:hover { background: #1e293b; color: #c7d2fe; border-color: #334155; }
 
 /* Body */
 .nsp-term-body {
@@ -689,6 +705,16 @@
   font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
   font-size: 12px;
   line-height: 1.8;
+  transition: max-height .32s cubic-bezier(.4,0,.2,1), min-height .32s cubic-bezier(.4,0,.2,1),
+              padding .28s ease, opacity .24s ease;
+}
+.nsp-term-body-collapsed {
+  min-height: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  overflow: hidden;
 }
 .nsp-term-body::-webkit-scrollbar { width: 4px; }
 .nsp-term-body::-webkit-scrollbar-track { background: transparent; }
@@ -3407,7 +3433,14 @@
   transform: scale(.98) translateY(-8px);
   pointer-events: none;
 }
+/* CoT panel + inline recommendation share one page. The panel (collapsed to a
+   slim caret bar after the run) sits above the Tier 1 line plan with a small
+   gap. The bar is intentionally NOT sticky so it scrolls away and never fights
+   the Tier 1 sticky header/tab/KPI stack (which pins to top:0). */
 .nsp-eng-runner-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   padding: 0;
 }
 /* (tlog colour rules are defined in the TERMINAL section above) */
@@ -3415,8 +3448,21 @@
 /* ── Tier 1 Line Plan ─────────────────────────────────────────────────────── */
 .nsp-eng-tier1 {
   display: flex; flex-direction: column; gap: 0;
-  border: 1.5px solid #e2e8f0; border-radius: 16px; overflow: hidden;
+  border: 1.5px solid #e2e8f0; border-radius: 16px;
+  /* `clip` (not `hidden`) clips the same as before but — unlike `hidden` —
+     does not establish a scroll container, so it won't break the sticky
+     header/context-bar/tab-strip below. */
+  overflow: clip;
   box-shadow: 0 4px 24px rgba(0,0,0,.07);
+}
+
+/* Sticky head — tier title/actions row + persistent context bar stick
+   together as one unit while the tab content scrolls beneath them. */
+.nsp-t1-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: 0 8px 16px -14px rgba(15,23,42,.28);
 }
 
 /* Tier header */
@@ -3458,19 +3504,11 @@
 }
 .nsp-eng-tier-step.disabled .nsp-eng-tier-step-dot { background: #f1f5f9; color: #cbd5e1; }
 
-/* Health cards row */
+/* Health cards row — three separated Impact UI Card tiles */
 .nsp-eng-health-row {
   display: grid; grid-template-columns: repeat(4, 1fr);
-  border-bottom: 1px solid #e8edf5;
+  gap: 12px;
 }
-.nsp-eng-hcard {
-  padding: 16px 20px;
-  border-right: 1px solid #e8edf5;
-  background: #fff;
-  transition: background .12s;
-}
-.nsp-eng-hcard:last-child { border-right: none; }
-.nsp-eng-hcard:hover { background: #fafbff; }
 .nsp-eng-hcard-top {
   display: flex; align-items: center; gap: 7px; margin-bottom: 8px;
 }
@@ -3572,21 +3610,65 @@
 .nsp-t1-ctx-val { font-size: 12px; font-weight: 600; color: #e2e8f0; white-space: nowrap; }
 .nsp-t1-ctx-divider { width: 1px; height: 16px; background: #334155; margin: 0 16px; }
 
-/* ── Tier tabs wrapper ── */
-.nsp-t1-tabs { background: #fff; padding: 4px 12px 0; }
-.nsp-t1-tabs .MuiTabs-root,
-.nsp-t1-tabs [role="tablist"] { padding: 0 8px; }
+/* ── Tier tabs wrapper ──
+   Hand-rolled strip (.nsp-t1-tabstrip) rather than the Impact UI <Tabs>
+   component's own tab-list element — offset by the live-measured height of
+   the sticky head above it (--nsp-t1-tabnav-top, set inline on
+   .nsp-eng-tier1). See the JSX comment for why. */
+.nsp-t1-tabs { background: transparent; padding: 0; }
+.nsp-t1-tabstrip {
+  position: sticky;
+  top: var(--nsp-t1-tabnav-top, 112px);
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border-bottom: 1px solid #e8edf5;
+  padding: 0 20px;
+}
+.nsp-t1-tabstrip-btn {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 13px; font-weight: 600; color: #64748b;
+  padding: 14px 16px 12px; position: relative;
+  transition: color .15s ease;
+}
+.nsp-t1-tabstrip-btn:hover { color: #334155; }
+.nsp-t1-tabstrip-btn::after {
+  content: ""; position: absolute; left: 16px; right: 16px; bottom: 0;
+  height: 2.5px; border-radius: 2px 2px 0 0;
+  background: transparent; transition: background .15s ease;
+}
+.nsp-t1-tabstrip-btn.is-active { color: var(--color-primary, #4f46e5); }
+.nsp-t1-tabstrip-btn.is-active::after { background: var(--color-primary, #4f46e5); }
+.nsp-t1-tabpanel { padding-top: 4px; }
 
 /* ── Tier 1 panel ── */
 .nsp-t1-panel { display: flex; flex-direction: column; gap: 0; padding-top: 4px; }
 
-/* ── Strategic health banner ── */
+/* Sticky KPI stack — health banner + health cards freeze right beneath the
+   tab strip, offset live via --nsp-t1-kpi-top (measured head + tab height). */
+.nsp-t1-sticky-kpis {
+  position: sticky;
+  top: var(--nsp-t1-kpi-top, 156px);
+  z-index: 40;
+  background: #f6f8fc;
+  box-shadow: 0 10px 18px -15px rgba(15,23,42,.24);
+}
+/* Padded inner rail gives the frozen summary cards breathing room and lets
+   them read as separated Impact UI Card tiles rather than one edge-joined slab. */
+.nsp-t1-kpi-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 24px 12px;
+}
+
+/* ── Strategic health banner ── (surface now provided by the wrapping Card) */
 .nsp-t1-health-banner {
   display: flex; align-items: center; gap: 24px;
-  padding: 16px 24px;
+  padding: 16px 22px;
   background: linear-gradient(135deg, #f8fafc, #f1f5f9);
-  border-top: 1px solid #e8edf5;
-  border-bottom: 1px solid #e8edf5;
 }
 .nsp-t1-health-banner.exceeded {
   background: linear-gradient(135deg, #fef2f2, #fee2e2);
@@ -3629,53 +3711,104 @@
 .nsp-t1-agent-title { font-size: 13px; font-weight: 700; color: #78350f; }
 .nsp-t1-agent-sub   { font-size: 11.5px; color: #92400e; }
 
-/* ── Strategic assortment table ── */
-.nsp-t1-table-wrap { position: relative; }
-/* Right-edge fade cue that there is more table to scroll to */
-.nsp-t1-table-wrap::after {
-  content: ""; position: absolute; top: 0; right: 0; bottom: 12px; width: 44px;
-  background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.92));
-  pointer-events: none; z-index: 3;
+/* ── Strategic assortment table ──
+   The wrap's max-height is capped live (via --nsp-t1-table-wrap's inline
+   style) to whatever room is left in the viewport, so only .nsp-t1-table's
+   rows scroll — the page itself never has to move. The pager below stays
+   fully visible at all times since it isn't part of the flexed/scrolling
+   region. */
+.nsp-t1-table-wrap {
+  position: relative; display: flex; flex-direction: column; gap: 0;
+  overflow: hidden;
+  /* Breathing space below the frozen KPI stack + a premium rounded surface
+     that wraps the scrolling grid and its pager as one contained tile. */
+  margin: 14px 20px 18px;
+  border: 1px solid #e6ebf3;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 18px -12px rgba(15,23,42,.22);
 }
 .nsp-t1-table {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   overflow-x: auto;
+  overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #c3ccdb #eef2f7;
 }
+/* The Mkt Potential column is frozen to the right edge (see .nsp-t1-td-mkt),
+   so its left divider shadow — not a fade overlay — is the scroll affordance. */
 .nsp-t1-table::-webkit-scrollbar { height: 10px; }
 .nsp-t1-table::-webkit-scrollbar-track { background: #eef2f7; border-radius: 8px; }
 .nsp-t1-table::-webkit-scrollbar-thumb {
   background: #c3ccdb; border-radius: 8px; border: 2px solid #eef2f7;
 }
 .nsp-t1-table::-webkit-scrollbar-thumb:hover { background: #9aa7bd; }
+
+/* ── Shared table pagination footer ── */
+.nsp-pager {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-top: 1px solid #eef1f8;
+  background: #fafbff;
+}
+.nsp-pager-size { display: flex; align-items: center; gap: 8px; }
+.nsp-pager-size-lbl {
+  font-size: 11px; font-weight: 600; color: #94a3b8; white-space: nowrap;
+}
+.nsp-pager-info {
+  font-size: 11.5px; font-weight: 600; color: #64748b; white-space: nowrap;
+}
+.nsp-pager-nav { display: flex; align-items: center; gap: 10px; }
+.nsp-pager-pageof {
+  font-size: 11.5px; font-weight: 700; color: #0f172a; white-space: nowrap;
+  font-family: ui-monospace, monospace;
+}
+.nsp-pager-btn {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 12px; border-radius: 8px;
+  border: 1.5px solid #e2e8f0; background: #fff;
+  font-size: 11.5px; font-weight: 700; color: #334155;
+  cursor: pointer; transition: all .12s; white-space: nowrap;
+}
+.nsp-pager-btn:hover:not(:disabled) { border-color: #a5b4fc; background: #f5f7ff; color: #4338ca; }
+.nsp-pager-btn:disabled { opacity: .4; cursor: not-allowed; }
+.nsp-pager-btn-next { border-color: #c7d2fe; background: #eef2ff; color: #4338ca; }
+.nsp-pager-btn-next:hover:not(:disabled) { background: #e0e7ff; border-color: #a5b4fc; }
+
 .nsp-t1-thead,
 .nsp-t1-row {
   display: grid;
   grid-template-columns:
-    minmax(190px, 1.5fr)  /* style-colour */
-    72px                  /* dept */
-    96px                  /* type */
-    128px                 /* role */
-    104px                 /* drop */
-    128px                 /* mkt potential */
+    minmax(240px, 1.6fr)  /* style-colour (+ thumbnail) */
+    118px                 /* department */
+    128px                 /* sub-department */
+    150px                 /* class */
+    108px                 /* sub-class */
+    92px                  /* launch date */
+    92px                  /* end date */
+    90px                  /* type */
     120px                 /* buy qty */
     54px                  /* aps */
     54px                  /* st% */
     60px                  /* gm% */
     88px                  /* mandatory */
-    96px;                 /* wp assorted */
+    96px                  /* wp assorted */
+    138px;                /* mkt potential (moved to end) */
   align-items: center;
-  padding: 0 20px;
-  min-width: 1226px;
-  column-gap: 8px;
+  padding: 0 24px;
+  min-width: 1780px;
+  column-gap: 12px;
 }
 .nsp-t1-thead {
-  background: #f8fafc; border-bottom: 1px solid #e8edf5;
-  position: sticky; top: 0; z-index: 2;
+  background: #f6f8fc; border-bottom: 1.5px solid #e6ebf3;
+  position: sticky; top: 0; z-index: 5;
 }
 .nsp-t1-th {
-  padding: 9px 2px; font-size: 9.5px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .06em; color: #94a3b8;
+  padding: 13px 2px; font-size: 10.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .07em; color: #64748b;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .nsp-t1-th-r { text-align: right; }
@@ -3683,55 +3816,105 @@
 .nsp-t1-th-wp { text-align: center; }
 
 .nsp-t1-row {
-  border-bottom: 1px solid #f1f5f9;
-  transition: background .1s;
+  min-height: 58px;
+  border-bottom: 1px solid #eef2f7;
+  transition: background .12s;
 }
 .nsp-t1-row:last-child { border-bottom: none; }
-.nsp-t1-row:hover { background: #fafbff; }
+.nsp-t1-row:nth-child(even) { background: #fbfcfe; }
+.nsp-t1-row:hover { background: #f4f7ff; }
 .nsp-t1-row-dim { opacity: .5; }
 
 .nsp-t1-td {
-  padding: 9px 2px; font-size: 12px; color: #0f172a;
+  padding: 14px 2px; font-size: 12.5px; color: #0f172a;
   min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .nsp-t1-td-r { text-align: right; font-variant-numeric: tabular-nums; color: #334155; }
 .nsp-t1-td-c { text-align: center; display: flex; align-items: center; justify-content: center; }
 
 /* Style-colour cell */
-.nsp-t1-td-style { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.nsp-t1-td-style { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.nsp-t1-style-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .nsp-t1-style-name {
-  font-size: 12px; font-weight: 600; color: #0f172a;
+  font-size: 13px; font-weight: 600; color: #0f172a;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
   cursor: default;
 }
-.nsp-t1-style-code { font-family: ui-monospace, monospace; font-size: 10px; color: #94a3b8; }
+.nsp-t1-style-code { font-family: ui-monospace, monospace; font-size: 10.5px; color: #94a3b8; }
 
-/* Market potential bar */
-.nsp-t1-td-mkt { display: flex; align-items: center; gap: 8px; }
-.nsp-t1-mkt-track { flex: 1; height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; min-width: 40px; }
+/* Product thumbnail */
+.nsp-t1-thumb {
+  flex-shrink: 0; width: 40px; height: 40px; border-radius: 10px;
+  overflow: hidden; border: 1px solid #e6ebf3; background: #f8fafc;
+  box-shadow: 0 2px 6px -2px rgba(15,23,42,.18);
+}
+.nsp-t1-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Hierarchy + date cells */
+.nsp-t1-td-muted { color: #475569; font-size: 12px; }
+
+/* ── Market Potential: frozen right-hand column ──
+   The table is intentionally wider than its container (data-dense), so the
+   hero Mkt Potential metric is pinned to the right edge — always fully visible,
+   never cut by the scroll edge. Its left shadow doubles as the scroll cue.
+   The −12px left margin swallows the grid column-gap so scrolled cells never
+   peek through beside the frozen column. */
+.nsp-t1-th-mkt,
+.nsp-t1-td-mkt {
+  position: sticky;
+  right: 0;
+  margin-left: -12px;
+  padding-left: 14px;
+  padding-right: 14px;
+  background: #fff;
+  box-shadow: -12px 0 14px -12px rgba(15,23,42,.22);
+}
+.nsp-t1-td-mkt { display: flex; align-items: center; z-index: 3; }
+.nsp-t1-th-mkt { z-index: 6; background: #f6f8fc; }
+/* Frozen cell must repaint the row's zebra / hover / dim states itself,
+   otherwise its opaque background would break the striping. */
+.nsp-t1-row:nth-child(even) .nsp-t1-td-mkt { background: #fbfcfe; }
+.nsp-t1-row:hover .nsp-t1-td-mkt { background: #f4f7ff; }
+
+.nsp-t1-td-mkt > * { width: 100%; }
+.nsp-t1-mkt-cell { display: flex; align-items: center; gap: 10px; width: 100%; cursor: default; }
+.nsp-t1-mkt-track { flex: 1; height: 6px; background: #eef2f7; border-radius: 3px; overflow: hidden; min-width: 40px; }
 .nsp-t1-mkt-fill  { height: 100%; border-radius: 3px; transition: width 1s cubic-bezier(.22,1,.36,1); }
-.nsp-t1-mkt-score { font-size: 12px; font-weight: 800; min-width: 22px; text-align: right; }
+.nsp-t1-mkt-score { font-size: 12.5px; font-weight: 800; min-width: 24px; text-align: right; font-variant-numeric: tabular-nums; }
 
-/* Buy-qty spinner */
-.nsp-t1-spinner {
-  display: inline-flex; align-items: center;
-  border: 1.5px solid #e2e8f0; border-radius: 8px; overflow: hidden;
-  background: #fff; height: 30px;
+/* Market potential explainer tooltip */
+.nsp-t1-mkt-tip { display: flex; flex-direction: column; gap: 9px; max-width: 300px; text-align: left; }
+.nsp-t1-mkt-tip-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.nsp-t1-mkt-tip-title { font-size: 12px; font-weight: 800; letter-spacing: .02em; }
+.nsp-t1-mkt-tip-score { font-size: 17px; font-weight: 800; line-height: 1; }
+.nsp-t1-mkt-tip-of { font-size: 11px; font-weight: 700; opacity: .6; }
+.nsp-t1-mkt-tip-sub { font-size: 11px; line-height: 1.5; opacity: .82; }
+.nsp-t1-mkt-tip-rows { display: flex; flex-direction: column; gap: 6px; }
+.nsp-t1-mkt-tip-row {
+  display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 8px; font-size: 11px;
 }
-.nsp-t1-spin-btn {
-  width: 26px; height: 100%; border: none; background: #f8fafc;
-  display: flex; align-items: center; justify-content: center;
-  color: #475569; cursor: pointer; transition: background .12s; flex-shrink: 0;
+.nsp-t1-mkt-tip-w { font-weight: 800; font-variant-numeric: tabular-nums; opacity: .7; }
+.nsp-t1-mkt-tip-lbl { line-height: 1.35; }
+.nsp-t1-mkt-tip-lbl em { font-style: normal; opacity: .58; }
+.nsp-t1-mkt-tip-v { font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
+.nsp-t1-mkt-tip-formula {
+  font-size: 10.5px; font-family: ui-monospace, monospace; opacity: .78;
+  border-top: 1px solid rgba(148,163,184,.28); padding-top: 7px;
 }
-.nsp-t1-spin-btn:hover { background: #eef2ff; color: #4f46e5; }
-.nsp-t1-spin-input {
-  width: 40px; height: 100%; border: none; outline: none; text-align: center;
-  font-size: 12px; font-weight: 700; color: #0f172a; background: #fff;
-  -moz-appearance: textfield;
+
+/* Buy Qty — read-only locked chip (quantified downstream in Tier 3 WSSI) */
+.nsp-t1-qty-locked {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 8px;
+  border: 1px solid #e2e8f0; background: #f8fafc;
+  color: #475569; cursor: default; white-space: nowrap;
 }
-.nsp-t1-spin-input::-webkit-outer-spin-button,
-.nsp-t1-spin-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.nsp-t1-qty-below .nsp-t1-spinner { border-color: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.12); }
+.nsp-t1-qty-locked svg { color: #94a3b8; flex-shrink: 0; }
+.nsp-t1-qty-locked-val {
+  font-size: 12.5px; font-weight: 800; color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+.nsp-t1-qty-locked-unit { font-size: 10.5px; font-weight: 600; color: #94a3b8; }
 
 .nsp-t1-muted   { color: #cbd5e1; font-size: 11px; }
 .nsp-t1-wp-yes  { color: #059669; }
@@ -3847,15 +4030,31 @@
   font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: #94a3b8;
 }
 
-/* Scroll wrapper — visible custom scrollbar + right-edge fade */
-.nsp-t2-grid-wrap { position: relative; min-width: 0; }
-.nsp-t2-grid-wrap::after {
+/* Scroll wrapper — visible custom scrollbar + right-edge fade.
+   Height is capped live (inline style) to the room left in the viewport,
+   so only the grid rows scroll — never the page itself. The pager below
+   stays fully visible since it isn't part of the flexed scroll region. */
+.nsp-t2-grid-wrap {
+  position: relative; min-width: 0; display: flex; flex-direction: column;
+  overflow: hidden;
+  margin: 12px 16px 16px;
+  border: 1px solid #e6ebf3;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 18px -12px rgba(15,23,42,.22);
+}
+.nsp-t2-grid-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #c3ccdb #eef2f7;
+}
+/* Right-edge fade cue — scoped to the scrollable grid itself so it never
+   bleeds over the pagination footer below. */
+.nsp-t2-grid-scroll::after {
   content: ""; position: absolute; top: 0; right: 0; bottom: 12px; width: 44px;
   background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.92));
   pointer-events: none; z-index: 3;
-}
-.nsp-t2-grid-scroll {
-  overflow-x: auto; scrollbar-width: thin; scrollbar-color: #c3ccdb #eef2f7;
 }
 .nsp-t2-grid-scroll::-webkit-scrollbar { height: 10px; }
 .nsp-t2-grid-scroll::-webkit-scrollbar-track { background: #eef2f7; border-radius: 8px; }
@@ -3866,7 +4065,7 @@
 .nsp-t2-thead, .nsp-t2-thead-sub, .nsp-t2-row {
   display: grid; align-items: center; column-gap: 4px; padding: 0 16px;
 }
-.nsp-t2-thead { background: #f8fafc; padding-top: 8px; }
+.nsp-t2-thead { background: #f6f8fc; padding-top: 10px; }
 .nsp-t2-th-check, .nsp-t2-td-check { display: flex; align-items: center; justify-content: center; }
 .nsp-t2-th-check input, .nsp-t2-td-check input { width: 14px; height: 14px; accent-color: #4f46e5; cursor: pointer; }
 .nsp-t2-th-group {
@@ -3876,15 +4075,15 @@
 }
 .nsp-t2-th-label { }
 .nsp-t2-thead-sub {
-  background: #f8fafc; border-bottom: 1px solid #e8edf5; padding-bottom: 8px;
+  background: #f6f8fc; border-bottom: 1.5px solid #e6ebf3; padding-bottom: 10px;
 }
 .nsp-t2-th-sub {
-  font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
-  color: #94a3b8; text-align: center;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: #64748b; text-align: center;
 }
 
-.nsp-t2-row { border-bottom: 1px solid #f1f5f9; min-height: 42px; transition: background .1s; }
-.nsp-t2-row:hover { background: #fafbff; }
+.nsp-t2-row { border-bottom: 1px solid #eef2f7; min-height: 52px; transition: background .12s; }
+.nsp-t2-row:hover { background: #f4f7ff; }
 .nsp-t2-row-total { background: #0f172a; }
 .nsp-t2-row-total .nsp-t2-td-label,
 .nsp-t2-row-total .nsp-t2-td { color: #fff; font-weight: 800; font-size: 12.5px; }
@@ -3895,12 +4094,12 @@
 .nsp-t2-row-item.nsp-t2-status-overridden { background: #fffbeb; }
 
 .nsp-t2-td-label {
-  font-size: 12px; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 12.5px; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .nsp-t2-td-item-label { display: flex; align-items: center; }
 .nsp-t2-item-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
 .nsp-t2-td {
-  font-size: 12px; color: #334155; text-align: center; font-variant-numeric: tabular-nums;
+  font-size: 12.5px; color: #334155; text-align: center; font-variant-numeric: tabular-nums;
 }
 .nsp-t2-td-var { font-weight: 700; }
 .nsp-t2-td-ag { color: #64748b; }
@@ -3991,28 +4190,38 @@
 .nsp-t3-input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.12); }
 .nsp-t3-input-sm { width: 56px; }
 
-.nsp-t3-table-scroll { overflow-x: auto; }
+/* Height capped live (inline style) to the room left in the viewport, so
+   only the metric grid scrolls — never the page itself. */
+.nsp-t3-table-scroll {
+  overflow-x: auto; overflow-y: auto;
+  margin: 12px 16px 16px;
+  border: 1px solid #e6ebf3;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 18px -12px rgba(15,23,42,.22);
+}
 .nsp-t3-table { min-width: 1180px; }
 .nsp-t3-row {
   display: grid;
   grid-template-columns: 190px repeat(10, 1fr);
   align-items: center; column-gap: 4px; padding: 0 24px;
-  border-bottom: 1px solid #f1f5f9; min-height: 38px;
+  border-bottom: 1px solid #eef2f7; min-height: 50px;
 }
-.nsp-t3-row:hover { background: #fafbff; }
+.nsp-t3-row:nth-child(even):not(.nsp-t3-row-head):not(.nsp-t3-row-highlight) { background: #fbfcfe; }
+.nsp-t3-row:hover:not(.nsp-t3-row-head) { background: #f4f7ff; }
 .nsp-t3-row-head {
-  background: #f8fafc; border-bottom: 1px solid #e8edf5; position: sticky; top: 0; min-height: 34px;
+  background: #f6f8fc; border-bottom: 1.5px solid #e6ebf3; position: sticky; top: 0; min-height: 42px;
 }
 .nsp-t3-th {
-  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
-  color: #94a3b8; text-align: center;
+  font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  color: #64748b; text-align: center;
 }
 .nsp-t3-td-label {
-  font-size: 11.5px; font-weight: 700; color: #334155;
+  font-size: 12px; font-weight: 700; color: #334155;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px;
 }
 .nsp-t3-td {
-  font-size: 11.5px; color: #334155; text-align: center; font-variant-numeric: tabular-nums;
+  font-size: 12px; color: #334155; text-align: center; font-variant-numeric: tabular-nums;
 }
 .nsp-t3-row-highlight { background: #eef2ff; }
 .nsp-t3-row-highlight .nsp-t3-td-label { color: #4338ca; }
@@ -4102,7 +4311,7 @@
    ════════════════════════════════════════════════════════════════════════════ */
 .nsp-signoff { display: flex; flex-direction: column; gap: 16px; }
 .nsp-signoff-lead { font-size: 12.5px; color: #64748b; line-height: 1.55; margin: 0; }
-.nsp-signoff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.nsp-signoff-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .nsp-signoff-tile {
   border: 1px solid #e8edf5; border-radius: 11px; padding: 12px 14px; background: #fafbff;
 }
@@ -4535,3 +4744,193 @@
 .nsp-intel-src-label { font-size: 12.5px; font-weight: 600; color: #1e293b; }
 .nsp-intel-src.is-done .nsp-intel-src-label { color: #0f172a; }
 .nsp-intel-src-detail { font-size: 11px; color: #94a3b8; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Executive OTB headline hero (frozen Tier 1 header)
+   ══════════════════════════════════════════════════════════════════════════ */
+.nsp-t1-otb-hero {
+  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+  padding: 11px 20px;
+  background: linear-gradient(135deg, #f8fafc, #eef2ff);
+  border-left: 3px solid #4f46e5;
+}
+.nsp-t1-otb-hero.deficit {
+  background: linear-gradient(135deg, #fff7f7, #fee2e2);
+  border-left-color: #dc2626;
+  animation: nsp-otb-deficit-pulse 1.5s ease-in-out infinite;
+}
+@keyframes nsp-otb-deficit-pulse {
+  0%, 100% { box-shadow: inset 3px 0 0 0 #dc2626; }
+  50%      { box-shadow: inset 3px 0 0 0 rgba(220, 38, 38, .3); }
+}
+.nsp-t1-otb-hero-main { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+.nsp-t1-otb-hero-lbl {
+  font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .09em; color: #64748b;
+}
+.nsp-t1-otb-hero-figure { display: flex; align-items: center; gap: 12px; }
+.nsp-t1-otb-hero-val { font-size: 24px; font-weight: 800; color: #0f172a; letter-spacing: -.8px; line-height: 1; }
+.nsp-t1-otb-hero.deficit .nsp-t1-otb-hero-val { color: #b91c1c; }
+
+.nsp-t1-otb-hero-eq {
+  display: flex; align-items: center; gap: 16px;
+  padding-left: 28px; border-left: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+.nsp-t1-otb-eq-part { display: flex; flex-direction: column; gap: 2px; }
+.nsp-t1-otb-eq-num { font-size: 15px; font-weight: 800; color: #334155; letter-spacing: -.3px; }
+.nsp-t1-otb-eq-num.pos { color: #059669; }
+.nsp-t1-otb-eq-num.neg { color: #dc2626; }
+.nsp-t1-otb-eq-lbl { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; }
+.nsp-t1-otb-eq-op { font-size: 18px; font-weight: 600; color: #cbd5e1; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Reconciliation & Attribute Mix — View More trigger + right-side drawer
+   ══════════════════════════════════════════════════════════════════════════ */
+/* View More button (sits below the KPI health cards in the frozen header) */
+.nsp-recon-viewmore {
+  width: 100%; margin-top: 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid #e6e9f0; border-radius: 12px;
+  background: linear-gradient(180deg, #fafbff, #f4f6fb);
+  cursor: pointer; text-align: left;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.nsp-recon-viewmore:hover {
+  border-color: #c7d2fe; background: linear-gradient(180deg, #f5f7ff, #eef1fb);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, .10);
+}
+.nsp-recon-viewmore-left { display: flex; align-items: center; gap: 11px; color: #4f46e5; min-width: 0; }
+.nsp-recon-viewmore-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.nsp-recon-viewmore-title { font-size: 13px; font-weight: 800; color: #0f172a; letter-spacing: -.2px; }
+.nsp-recon-viewmore-sub { font-size: 11px; color: #94a3b8; font-weight: 600; }
+.nsp-recon-viewmore-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.nsp-recon-viewmore-cta {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; font-weight: 800; color: #4f46e5;
+  padding: 6px 12px; border-radius: 8px;
+  background: rgba(99, 102, 241, .10);
+}
+.nsp-recon-viewmore:hover .nsp-recon-viewmore-cta { background: rgba(99, 102, 241, .16); }
+
+/* Backdrop + slide-over panel (mirrors the Scope drawer, wider for charts) */
+.nsp-recon-drawer-backdrop {
+  position: fixed; inset: 0; z-index: 19998;
+  background: rgba(15, 23, 42, .30);
+  backdrop-filter: blur(3px);
+}
+.nsp-recon-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: 660px; max-width: 96vw;
+  background: #f8fafc;
+  border-left: 1px solid #e2e8f0;
+  box-shadow: -8px 0 56px rgba(0, 0, 0, .16);
+  display: flex; flex-direction: column;
+  z-index: 19999;
+  animation: nsp-drawer-in .26s cubic-bezier(.32, 1, .56, 1);
+}
+.nsp-recon-drawer-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #f5f7ff, #eef2ff);
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.nsp-recon-drawer-header-left { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.nsp-recon-drawer-icon {
+  width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 6px 18px rgba(99, 102, 241, .35);
+}
+.nsp-recon-drawer-title { font-size: 15.5px; font-weight: 800; color: #0f172a; letter-spacing: -.3px; }
+.nsp-recon-drawer-sub { font-size: 11.5px; color: #64748b; margin-top: 3px; }
+.nsp-recon-drawer-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.nsp-recon-drawer-close {
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  background: transparent; border: 1px solid #e2e8f0;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: #64748b; transition: all .12s;
+}
+.nsp-recon-drawer-close:hover { background: #fff; color: #0f172a; }
+
+.nsp-recon-body {
+  flex: 1; overflow-y: auto;
+  padding: 18px 22px 24px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.nsp-recon-body::-webkit-scrollbar { width: 5px; }
+.nsp-recon-body::-webkit-scrollbar-track { background: transparent; }
+.nsp-recon-body::-webkit-scrollbar-thumb { background: #d8dee9; border-radius: 3px; }
+
+/* Depth & breadth strip */
+.nsp-recon-db-strip {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+  padding: 14px 16px;
+  background: #f8fafc; border: 1px solid #eef1f6; border-radius: 10px;
+}
+.nsp-recon-db-item { display: flex; flex-direction: column; gap: 3px; }
+.nsp-recon-db-val { font-size: 20px; font-weight: 800; color: #0f172a; letter-spacing: -.5px; line-height: 1; }
+.nsp-recon-db-lbl { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; }
+
+/* Space + donuts stack (single column inside the drawer for breathing room) */
+.nsp-recon-grid {
+  display: flex; flex-direction: column; gap: 14px;
+}
+.nsp-recon-card-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 12px;
+}
+.nsp-recon-card-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #475569; }
+.nsp-recon-card-sub { font-size: 11px; font-weight: 600; color: #94a3b8; }
+
+/* Space vs capital */
+.nsp-recon-space-bays { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.nsp-recon-space-bays-val { font-size: 24px; font-weight: 800; color: #0f172a; letter-spacing: -.6px; }
+.nsp-recon-space-bays-max { font-size: 13px; font-weight: 600; color: #94a3b8; }
+.nsp-recon-space-bays-pct { font-size: 14px; font-weight: 800; color: #4f46e5; }
+.nsp-recon-space-track { height: 7px; background: #eef1f6; border-radius: 4px; overflow: hidden; margin-bottom: 14px; }
+.nsp-recon-space-fill { height: 100%; border-radius: 4px; transition: width .8s cubic-bezier(.22,1,.36,1); }
+.nsp-recon-space-foot { display: flex; gap: 22px; }
+.nsp-recon-space-metric { display: flex; flex-direction: column; gap: 2px; }
+.nsp-recon-space-metric-val { font-size: 16px; font-weight: 800; color: #0f172a; letter-spacing: -.3px; }
+.nsp-recon-space-metric-lbl { font-size: 10px; font-weight: 600; color: #94a3b8; }
+
+/* Donuts */
+.nsp-recon-donuts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.nsp-recon-donut { display: flex; flex-direction: column; align-items: center; }
+.nsp-recon-donut-head { display: flex; flex-direction: column; align-items: center; gap: 1px; margin-bottom: 2px; }
+.nsp-recon-donut-title { font-size: 11px; font-weight: 800; color: #334155; letter-spacing: -.1px; }
+.nsp-recon-donut-note { font-size: 9.5px; font-weight: 600; color: #94a3b8; }
+.nsp-recon-donut-body { width: 100%; }
+.nsp-recon-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; margin-top: 4px; }
+.nsp-recon-legend-item { display: flex; align-items: center; gap: 5px; }
+.nsp-recon-legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.nsp-recon-legend-name { font-size: 10.5px; font-weight: 600; color: #475569; }
+.nsp-recon-legend-pct { font-size: 10.5px; font-weight: 800; color: #0f172a; }
+
+/* Hierarchy roll-up */
+.nsp-recon-rollup { display: flex; flex-direction: column; }
+.nsp-recon-rollup-head,
+.nsp-recon-rollup-row {
+  display: grid; grid-template-columns: 2fr 1fr 1.3fr 1fr 1.2fr;
+  align-items: center; gap: 8px; padding: 9px 4px;
+}
+.nsp-recon-rollup-head {
+  border-bottom: 1.5px solid #eef1f6;
+}
+.nsp-recon-rollup-row { border-bottom: 1px solid #f4f6fb; }
+.nsp-recon-rollup-row.total {
+  border-top: 1.5px solid #e2e8f0; border-bottom: none;
+  margin-top: 2px; background: #f8fafc; border-radius: 8px; padding: 11px 8px;
+}
+.nsp-recon-ru-c { font-size: 12.5px; color: #334155; }
+.nsp-recon-rollup-head .nsp-recon-ru-c { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; }
+.nsp-recon-ru-cat { font-weight: 700; color: #0f172a; }
+.nsp-recon-ru-r { text-align: right; font-variant-numeric: tabular-nums; }
+.nsp-recon-rollup-row.total .nsp-recon-ru-c { font-weight: 800; color: #0f172a; }
+
+@media (max-width: 1180px) {
+  .nsp-eng-health-row { grid-template-columns: repeat(2, 1fr); }
+}

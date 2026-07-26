@@ -29,32 +29,32 @@ export const STUDIO_ACTIVE_CLUSTERS = [
 export const CLUSTERS_BY_RUN = {
   /* ── CR-019 · Wood > Solid Prefinished · Tier 1A–4 (LIVE) ─────────────── */
   "CR-019": [
-    { id: "A-M1-1-P1", label: "Northeast / Urban Affluent",    stores: 54, avgSqft: 78500, proIndex: 1.1, cohesion: 0.86, status: "healthy",  proxies: [] },
-    { id: "B-M3-1-P2", label: "West / Contractor-Rich Growth", stores: 38, avgSqft: 76800, proIndex: 2.8, cohesion: 0.81, status: "healthy",  proxies: [{ id: 381, name: "Billings, MT", note: "Zero-sales proxy assigned" }] },
-    { id: "C-M4-2-P3", label: "Texas / Value-Focused",         stores: 51, avgSqft: 74000, proIndex: 1.4, cohesion: 0.89, status: "healthy",  proxies: [] },
-    { id: "D-M2-1-P1", label: "Florida Coast / Premium",       stores: 38, avgSqft: 75200, proIndex: 1.2, cohesion: 0.84, status: "healthy",  proxies: [] },
+    { id: "A-M1-1-P1", label: "Northeast / Urban Affluent",    stores: 54, avgSqft: 78500, proIndex: 1.1, cohesion: 0.86, status: "healthy",  salesSqft: 142.0, sellThrough: 68.0, dos: 142, gmroi: 2.8, proxies: [] },
+    { id: "B-M3-1-P2", label: "West / Contractor-Rich Growth", stores: 38, avgSqft: 76800, proIndex: 2.8, cohesion: 0.81, status: "healthy",  salesSqft: 118.4, sellThrough: 62.4, dos: 185, gmroi: 2.41, proxies: [{ id: 381, name: "Billings, MT", note: "Zero-sales proxy assigned" }] },
+    { id: "C-M4-2-P3", label: "Texas / Value-Focused",         stores: 51, avgSqft: 74000, proIndex: 1.4, cohesion: 0.89, status: "healthy",  salesSqft: 88.6,  sellThrough: 48.2, dos: 210, gmroi: 1.9, proxies: [] },
+    { id: "D-M2-1-P1", label: "Florida Coast / Premium",       stores: 38, avgSqft: 75200, proIndex: 1.2, cohesion: 0.84, status: "healthy",  salesSqft: 158.2, sellThrough: 71.5, dos: 165, gmroi: 3.1, proxies: [] },
   ],
 
   /* ── CR-018 · Tile > Large Porcelain · Tier 1A–2 (archived) ───────────── */
   "CR-018": [
-    { id: "A-M1-2-P1", label: "Metro High-Traffic / Design-Led",   stores: 47, avgSqft: 82100, proIndex: 1.3, cohesion: 0.78, status: "healthy"   },
-    { id: "B-M2-2-P2", label: "Suburban / Renovation-Driven",      stores: 62, avgSqft: 68400, proIndex: 1.0, cohesion: 0.73, status: "healthy"   },
-    { id: "C-M4-1-P3", label: "Value / Entry-Tile",                stores: 72, avgSqft: 61200, proIndex: 0.8, cohesion: 0.69, status: "risk"      },
+    { id: "A-M1-2-P1", label: "Metro High-Traffic / Design-Led",   stores: 47, avgSqft: 82100, proIndex: 1.3, cohesion: 0.78, status: "healthy",  salesSqft: 131.5, sellThrough: 64.0, dos: 158, gmroi: 2.6 },
+    { id: "B-M2-2-P2", label: "Suburban / Renovation-Driven",      stores: 62, avgSqft: 68400, proIndex: 1.0, cohesion: 0.73, status: "healthy",  salesSqft: 104.2, sellThrough: 55.8, dos: 192, gmroi: 2.1 },
+    { id: "C-M4-1-P3", label: "Value / Entry-Tile",                stores: 72, avgSqft: 61200, proIndex: 0.8, cohesion: 0.69, status: "risk",     salesSqft: 74.9,  sellThrough: 41.3, dos: 268, gmroi: 1.5 },
   ],
 
   /* ── CR-017 · Wood > Engineered · Tier 1A–4 (archived) ────────────────── */
   "CR-017": [
-    { id: "A-M1-1-P2", label: "Pacific Northwest / Eco-Premium",   stores: 29, avgSqft: 84300, proIndex: 1.7, cohesion: 0.82, status: "healthy"   },
-    { id: "B-M3-2-P1", label: "Midwest / Trade-Heavy",             stores: 44, avgSqft: 71500, proIndex: 2.1, cohesion: 0.76, status: "healthy"   },
-    { id: "C-M4-2-P2", label: "Southeast / Mid-Tier",              stores: 58, avgSqft: 65000, proIndex: 1.1, cohesion: 0.71, status: "healthy"   },
-    { id: "D-M2-3-P3", label: "Southwest / Entry-Engineered",      stores: 50, avgSqft: 59800, proIndex: 0.9, cohesion: 0.66, status: "risk"      },
+    { id: "A-M1-1-P2", label: "Pacific Northwest / Eco-Premium",   stores: 29, avgSqft: 84300, proIndex: 1.7, cohesion: 0.82, status: "healthy",  salesSqft: 149.8, sellThrough: 70.2, dos: 151, gmroi: 2.9 },
+    { id: "B-M3-2-P1", label: "Midwest / Trade-Heavy",             stores: 44, avgSqft: 71500, proIndex: 2.1, cohesion: 0.76, status: "healthy",  salesSqft: 112.6, sellThrough: 60.1, dos: 197, gmroi: 2.3 },
+    { id: "C-M4-2-P2", label: "Southeast / Mid-Tier",              stores: 58, avgSqft: 65000, proIndex: 1.1, cohesion: 0.71, status: "healthy",  salesSqft: 93.4,  sellThrough: 52.7, dos: 221, gmroi: 1.8 },
+    { id: "D-M2-3-P3", label: "Southwest / Entry-Engineered",      stores: 50, avgSqft: 59800, proIndex: 0.9, cohesion: 0.66, status: "risk",     salesSqft: 71.2,  sellThrough: 39.8, dos: 279, gmroi: 1.4 },
   ],
 
   /* ── CR-016 · LVP > SPC · Tier 1A–3 (archived) ────────────────────────── */
   "CR-016": [
-    { id: "A-M2-1-P1", label: "National / LVP-Core",               stores: 89, avgSqft: 73400, proIndex: 1.2, cohesion: 0.72, status: "healthy"   },
-    { id: "B-M3-3-P2", label: "Urban / SPC-Upgrade",               stores: 41, avgSqft: 79200, proIndex: 1.6, cohesion: 0.68, status: "healthy"   },
-    { id: "C-M4-1-P2", label: "Rural / Value-SPC",                 stores: 51, avgSqft: 57600, proIndex: 0.7, cohesion: 0.61, status: "risk"      },
+    { id: "A-M2-1-P1", label: "National / LVP-Core",               stores: 89, avgSqft: 73400, proIndex: 1.2, cohesion: 0.72, status: "healthy",  salesSqft: 121.0, sellThrough: 63.5, dos: 174, gmroi: 2.4 },
+    { id: "B-M3-3-P2", label: "Urban / SPC-Upgrade",               stores: 41, avgSqft: 79200, proIndex: 1.6, cohesion: 0.68, status: "healthy",  salesSqft: 134.7, sellThrough: 58.9, dos: 188, gmroi: 2.2 },
+    { id: "C-M4-1-P2", label: "Rural / Value-SPC",                 stores: 51, avgSqft: 57600, proIndex: 0.7, cohesion: 0.61, status: "risk",     salesSqft: 68.3,  sellThrough: 37.4, dos: 291, gmroi: 1.3 },
   ],
 };
 
@@ -65,7 +65,7 @@ export const STUDIO_RUN_HISTORY = [
     author:        "Agent (Auto)",
     scope:         "Wood > Solid Prefinished",
     scopeTag:      "Wood",
-    tiers:         "Tier 1A–4",
+    tiers:         "Steps 1–5",
     status:        "live",
     silhouette:    0.84,
     silhouetteLabel: "High",
@@ -77,7 +77,7 @@ export const STUDIO_RUN_HISTORY = [
     author:        "J. Merchant",
     scope:         "Tile > Large Porcelain",
     scopeTag:      "Tile",
-    tiers:         "Tier 1A–2",
+    tiers:         "Steps 1–3",
     status:        "archived",
     silhouette:    0.79,
     silhouetteLabel: "Moderate",
@@ -89,7 +89,7 @@ export const STUDIO_RUN_HISTORY = [
     author:        "D. Rivera",
     scope:         "Wood > Engineered",
     scopeTag:      "Wood",
-    tiers:         "Tier 1A–4",
+    tiers:         "Steps 1–5",
     status:        "archived",
     silhouette:    0.77,
     silhouetteLabel: "Moderate",
@@ -97,11 +97,11 @@ export const STUDIO_RUN_HISTORY = [
   },
   {
     id:            "CR-016",
-    scenarioName:  "SS25 LVP/SPC — Tier 1A–3 Base Run",
+    scenarioName:  "SS25 LVP/SPC — Steps 1–4 Base Run",
     author:        "S. Patel",
     scope:         "LVP > SPC",
     scopeTag:      "LVP",
-    tiers:         "Tier 1A–3",
+    tiers:         "Steps 1–4",
     status:        "archived",
     silhouette:    0.71,
     silhouetteLabel: "Acceptable",
@@ -665,11 +665,11 @@ export const SKU_SCORECARD = [
 // ─── Wizard Defaults ─────────────────────────────────────────────────────────
 
 export const STUDIO_WIZARD_DEFAULTS = {
-  // Step 0: Tier 1A
-  tier1aMetrics: ["location_sqft", "store_age_weeks", "dc_nbr", "lat_lon"],
+  // Step 0: Tier 1A — all features selected by default (users can uncheck)
+  tier1aMetrics: TIER1A_METRICS.map((m) => m.key),
   useAgentTier1a: true,
-  // Step 1: Tier 1B
-  tier1bMetrics: ["ZBP_establishments", "ACS_median_inc", "ZHVI_index", "housing_age"],
+  // Step 1: Tier 1B — all features selected by default
+  tier1bMetrics: TIER1B_METRICS.map((m) => m.key),
   catchmentRadius: "30-Mile ZCTA Centroid Radius",
   useAgentTier1b: true,
   // Step 2: Scope
@@ -677,11 +677,11 @@ export const STUDIO_WIZARD_DEFAULTS = {
   scopeL2: "Wood",
   scopeL3: "Solid Wood",
   scopeL4: "Solid Prefinished Wood",
-  tier2Metrics: ["subclass_sales_sqft", "sell_through_pct", "category_dos", "category_gmroi"],
+  tier2Metrics: TIER2_METRICS.map((m) => m.key),
   useAgentTier2: true,
   // Step 3: Cold-start (no editable defaults — auto-detected)
-  // Step 4: Tier 4
-  tier4Metrics: ["finishType", "species", "goodBetterBest", "actualWidth"],
+  // Step 4: Tier 4 — all features selected by default
+  tier4Metrics: TIER4_METRICS.map((m) => m.key),
   useAgentTier4: true,
 };
 
@@ -692,4 +692,366 @@ export const LABEL_COLORS = {
   market:    { M1: "#0891B2", M2: "#6366F1", M3: "#059669", M4: "#DC2626" },
   commercial:{ "1": "#16A34A", "2": "#CA8A04", "3": "#EA580C", "4": "#DC2626" },
   style:     { P1: "#8B5CF6", P2: "#14B8A6", P3: "#F43F5E", CS: "#6B7280" },
+};
+
+// ═══ Interactive Cluster Explorer — configs + synthetic per-store rosters ══════
+//
+// The results view needs per-store cluster membership so it can recompute cluster
+// KPIs, counts and dispersion in real time when a store is reassigned. The source
+// data only carries aggregate rows, so we deterministically synthesize a plausible
+// store roster per cluster from each cluster's averages / dispersion stats.
+
+const CLX_CITY_POOL = [
+  ["Dallas", "TX"], ["Houston", "TX"], ["Austin", "TX"], ["San Antonio", "TX"], ["El Paso", "TX"],
+  ["Atlanta", "GA"], ["Savannah", "GA"], ["Charlotte", "NC"], ["Raleigh", "NC"],
+  ["Orlando", "FL"], ["Tampa", "FL"], ["Miami", "FL"], ["Jacksonville", "FL"],
+  ["Newark", "NJ"], ["Edison", "NJ"], ["New York", "NY"], ["Buffalo", "NY"], ["Hartford", "CT"],
+  ["Philadelphia", "PA"], ["Pittsburgh", "PA"], ["Boston", "MA"], ["Nashua", "NH"],
+  ["Denver", "CO"], ["Salt Lake City", "UT"], ["Provo", "UT"], ["Boise", "ID"],
+  ["Phoenix", "AZ"], ["Tucson", "AZ"], ["Las Vegas", "NV"], ["Reno", "NV"],
+  ["Los Angeles", "CA"], ["San Diego", "CA"], ["Sacramento", "CA"], ["San Jose", "CA"],
+  ["Seattle", "WA"], ["Spokane", "WA"], ["Portland", "OR"],
+  ["Chicago", "IL"], ["Detroit", "MI"], ["Columbus", "OH"], ["Indianapolis", "IN"],
+  ["Nashville", "TN"], ["Louisville", "KY"], ["Kansas City", "MO"], ["Minneapolis", "MN"],
+];
+const CLX_STATE_CITIES = CLX_CITY_POOL.reduce((m, [c, s]) => { (m[s] = m[s] || []).push(c); return m; }, {});
+const CLX_STATES = Object.keys(CLX_STATE_CITIES);
+
+function clxMulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function clxHash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function clxLerp(a, b, t) { return a + (b - a) * t; }
+
+function clxSampleMetric(spec, u) {
+  if (spec.type === "quant") {
+    const { min, q1, median, q3, max } = spec.q;
+    let v;
+    if (u < 0.25)      v = clxLerp(min, q1, u / 0.25);
+    else if (u < 0.5)  v = clxLerp(q1, median, (u - 0.25) / 0.25);
+    else if (u < 0.75) v = clxLerp(median, q3, (u - 0.5) / 0.25);
+    else               v = clxLerp(q3, max, (u - 0.75) / 0.25);
+    return Math.round(v);
+  }
+  // "norm": uniform spread around mean (symmetric so the cluster mean is preserved).
+  // absSpread gives an absolute band (used for values where a relative % band is awkward, e.g. year).
+  let v;
+  if (spec.absSpread != null) v = spec.mean + (u - 0.5) * 2 * spec.absSpread;
+  else v = spec.mean + (u - 0.5) * 2 * spec.spread * spec.mean;
+  if (spec.clampPct) v = Math.max(0, Math.min(100, v));
+  v = Math.max(0, v);
+  return Math.round(v * 100) / 100;
+}
+
+/** Weighted categorical pick from a { category: weight } map. */
+function clxSampleCategory(categories, weights, u) {
+  const entries = categories.map((c) => [c, Math.max(0, (weights && weights[c]) || 0)]);
+  const total = entries.reduce((a, [, w]) => a + w, 0) || 1;
+  const target = u * total;
+  let acc = 0;
+  for (const [c, w] of entries) { acc += w; if (target <= acc) return c; }
+  return categories[categories.length - 1];
+}
+
+/** modal-dominant categorical weight map: `modal` gets modalW%, the rest split evenly. */
+function clxModalWeights(cats, modal, modalW = 82) {
+  const others = cats.filter((c) => c !== modal);
+  const rest = others.length ? (100 - modalW) / others.length : 0;
+  const w = {};
+  cats.forEach((c) => { w[c] = c === modal ? modalW : rest; });
+  return w;
+}
+
+// ─── Per-tier metric registry ────────────────────────────────────────────────
+// Every clustering metric key (matching TIER*_METRICS keys) maps to a descriptor:
+//   numeric:     { label, kind:"numeric", format, byCluster: { [clusterId]: quant|norm spec } }
+//   categorical: { label, kind:"categorical", format:"text", categories:[...], byCluster: { [clusterId]: weights } }
+// This drives synthesis (buildClusterRosters) AND selection-driven plots/table/store view.
+
+const CLX_DC_CATS = ["99401.0", "99201.0", "99101.0", "99001.0"];
+const CLX_REGION_CATS = ["East", "West", "South", "Midwest"];
+const CLX_FORMAT_CATS = ["Warehouse", "Small-Format", "Prototype"];
+const CLX_T1A_FORMAT_W = {
+  A: { Warehouse: 70, "Small-Format": 10, Prototype: 20 },
+  B: { Warehouse: 65, "Small-Format": 15, Prototype: 20 },
+  C: { Warehouse: 60, "Small-Format": 8,  Prototype: 32 },
+  D: { Warehouse: 68, "Small-Format": 12, Prototype: 20 },
+  E: { Warehouse: 72, "Small-Format": 18, Prototype: 10 },
+  F: { Warehouse: 40, "Small-Format": 48, Prototype: 12 },
+};
+const CLX_T1A_SQ = Object.fromEntries(TIER1A_SQFT_DISPERSION.map((d) => [d.id, d]));
+const CLX_T1A_AGE = Object.fromEntries(TIER1A_AGE_DISPERSION.map((d) => [d.id, d]));
+
+const CLX_T1B_CONTRACTOR = { M1: 52, M2: 44, M3: 91, M4: 58 };
+const CLX_T1B_AGI        = { M1: 78, M2: 96, M3: 41, M4: 38 };
+const CLX_T1B_FEMA       = { M1: 44, M2: 38, M3: 56, M4: 61 };
+
+const CLX_T2_OOS   = { "1": 3, "2": 5, "3": 12, "4": 22 };
+const CLX_T2_TURNS = { "1": 2.6, "2": 2.0, "3": 0.9, "4": 0.23 };
+
+const CLX_FINISH_CATS  = ["Smooth Gloss", "Matte Lacquer", "Wirebrushed", "Hand-Scraped", "Dark Cherry", "Distressed"];
+const CLX_SPECIES_CATS = ["Oak", "Hickory", "Maple", "Ash", "Cherry"];
+const CLX_GBB_CATS     = ["Good", "Better", "Best"];
+const CLX_WIDTH_CATS   = ["Wide Plank", "Standard"];
+const CLX_COLOR_CATS   = ["Natural", "Dark", "Grey"];
+const CLX_TEXTURE_CATS = ["Smooth", "Textured", "Distressed"];
+
+const CLX_METRIC_REGISTRY = {
+  "1A": {
+    location_sqft: {
+      label: "Store SqFt", kind: "numeric", format: "k",
+      byCluster: Object.fromEntries(TIER1A_FAMILIES.map((f) => [f.id, { type: "quant", q: CLX_T1A_SQ[f.id] }])),
+    },
+    store_age_weeks: {
+      label: "Store Age (Weeks)", kind: "numeric", format: "weeks",
+      byCluster: Object.fromEntries(TIER1A_FAMILIES.map((f) => [f.id, { type: "quant", q: CLX_T1A_AGE[f.id] }])),
+    },
+    dc_nbr: {
+      label: "DC Location", kind: "categorical", format: "text", categories: CLX_DC_CATS,
+      byCluster: Object.fromEntries(TIER1A_FAMILIES.map((f) => [f.id, clxModalWeights(CLX_DC_CATS, f.dc.split(" (")[0].trim(), 84)])),
+    },
+    lat_lon: {
+      label: "Region (Lat / Long)", kind: "categorical", format: "text", categories: CLX_REGION_CATS,
+      byCluster: Object.fromEntries(TIER1A_FAMILIES.map((f) => [f.id, clxModalWeights(CLX_REGION_CATS, f.modalRegion.split(" (")[0].trim(), 80)])),
+    },
+    store_format: {
+      label: "Store Format", kind: "categorical", format: "text", categories: CLX_FORMAT_CATS,
+      byCluster: CLX_T1A_FORMAT_W,
+    },
+    open_date: {
+      label: "Opening Year", kind: "numeric", format: "year",
+      byCluster: Object.fromEntries(TIER1A_FAMILIES.map((f) => [f.id, { type: "norm", mean: Math.round(2026 - f.avgAgeWeeks / 52), absSpread: 6 }])),
+    },
+  },
+  "1B": {
+    ZBP_establishments: {
+      label: "Contractor Density", kind: "numeric", format: "num1",
+      byCluster: Object.fromEntries(TIER1B_FAMILIES.map((f) => [f.id, { type: "norm", mean: CLX_T1B_CONTRACTOR[f.id], spread: 0.20 }])),
+    },
+    ACS_median_inc: {
+      label: "Median Income", kind: "numeric", format: "usd",
+      byCluster: Object.fromEntries(TIER1B_FAMILIES.map((f) => [f.id, { type: "norm", mean: f.income, spread: 0.18 }])),
+    },
+    ZHVI_index: {
+      label: "Home Value Index", kind: "numeric", format: "usd",
+      byCluster: Object.fromEntries(TIER1B_FAMILIES.map((f) => [f.id, { type: "norm", mean: f.homeValue, spread: 0.22 }])),
+    },
+    housing_age: {
+      label: "Pre-1980 Housing Share", kind: "numeric", format: "pct",
+      byCluster: Object.fromEntries(TIER1B_FAMILIES.map((f) => [f.id, { type: "norm", mean: f.olderHomeShare, spread: 0.15, clampPct: true }])),
+    },
+    agi_density: {
+      label: "IRS AGI Density", kind: "numeric", format: "num1",
+      byCluster: Object.fromEntries(TIER1B_FAMILIES.map((f) => [f.id, { type: "norm", mean: CLX_T1B_AGI[f.id], spread: 0.20 }])),
+    },
+    fema_nri: {
+      label: "FEMA Climate Risk", kind: "numeric", format: "risk",
+      byCluster: Object.fromEntries(TIER1B_FAMILIES.map((f) => [f.id, { type: "norm", mean: CLX_T1B_FEMA[f.id], spread: 0.25, clampPct: true }])),
+    },
+  },
+  "2": {
+    subclass_sales_sqft: {
+      label: "Sales / SqFt", kind: "numeric", format: "usd0",
+      byCluster: Object.fromEntries(TIER2_COMMERCIAL_CLUSTERS.map((c) => [c.id, { type: "norm", mean: c.salesSqft, spread: 0.20 }])),
+    },
+    sell_through_pct: {
+      label: "Sell-Through %", kind: "numeric", format: "pct",
+      byCluster: Object.fromEntries(TIER2_COMMERCIAL_CLUSTERS.map((c) => [c.id, { type: "norm", mean: c.sellThrough, spread: 0.18, clampPct: true }])),
+    },
+    category_dos: {
+      label: "Days of Supply", kind: "numeric", format: "days",
+      byCluster: Object.fromEntries(TIER2_COMMERCIAL_CLUSTERS.map((c) => [c.id, { type: "norm", mean: c.dos, spread: 0.25 }])),
+    },
+    category_gmroi: {
+      label: "GMROI", kind: "numeric", format: "float2",
+      byCluster: Object.fromEntries(TIER2_COMMERCIAL_CLUSTERS.map((c) => [c.id, { type: "norm", mean: Math.max(c.gmroi, 0.05), spread: 0.20 }])),
+    },
+    category_oos_rate: {
+      label: "OOS Rate", kind: "numeric", format: "pct",
+      byCluster: Object.fromEntries(TIER2_COMMERCIAL_CLUSTERS.map((c) => [c.id, { type: "norm", mean: CLX_T2_OOS[c.id], spread: 0.30, clampPct: true }])),
+    },
+    category_turns: {
+      label: "Inventory Turns", kind: "numeric", format: "float2",
+      byCluster: Object.fromEntries(TIER2_COMMERCIAL_CLUSTERS.map((c) => [c.id, { type: "norm", mean: CLX_T2_TURNS[c.id], spread: 0.20 }])),
+    },
+  },
+  "4": {
+    finishType: {
+      label: "Finish Type", kind: "categorical", format: "text", categories: CLX_FINISH_CATS,
+      byCluster: {
+        P1: { "Smooth Gloss": 58, "Matte Lacquer": 28, Wirebrushed: 14 },
+        P2: { Wirebrushed: 64, "Hand-Scraped": 22, "Smooth Gloss": 14 },
+        P3: { "Dark Cherry": 48, "Smooth Gloss": 32, Distressed: 20 },
+      },
+    },
+    species: {
+      label: "Species", kind: "categorical", format: "text", categories: CLX_SPECIES_CATS,
+      byCluster: {
+        P1: { Maple: 38, Ash: 34, Oak: 20, Hickory: 8 },
+        P2: { Oak: 52, Hickory: 30, Maple: 12, Ash: 6 },
+        P3: { Cherry: 46, Oak: 34, Hickory: 20 },
+      },
+    },
+    goodBetterBest: {
+      label: "Price Tier (GBB)", kind: "categorical", format: "text", categories: CLX_GBB_CATS,
+      byCluster: Object.fromEntries(TIER4_PROFILES.map((p) => [p.id, p.gbbMix])),
+    },
+    actualWidth: {
+      label: "Plank Width", kind: "categorical", format: "text", categories: CLX_WIDTH_CATS,
+      byCluster: {
+        P1: { "Wide Plank": 72, Standard: 28 },
+        P2: { "Wide Plank": 58, Standard: 42 },
+        P3: { "Wide Plank": 30, Standard: 70 },
+      },
+    },
+    colorFamily: {
+      label: "Color Family", kind: "categorical", format: "text", categories: CLX_COLOR_CATS,
+      byCluster: {
+        P1: { Natural: 40, Grey: 38, Dark: 22 },
+        P2: { Natural: 64, Dark: 22, Grey: 14 },
+        P3: { Dark: 66, Natural: 24, Grey: 10 },
+      },
+    },
+    surfaceTexture: {
+      label: "Surface Texture", kind: "categorical", format: "text", categories: CLX_TEXTURE_CATS,
+      byCluster: {
+        P1: { Smooth: 70, Textured: 22, Distressed: 8 },
+        P2: { Textured: 66, Distressed: 20, Smooth: 14 },
+        P3: { Distressed: 44, Textured: 34, Smooth: 22 },
+      },
+    },
+  },
+};
+
+export { CLX_METRIC_REGISTRY };
+
+/** Resolve one metric descriptor for a tier + key. */
+export function getClxMetric(tierKey, key) {
+  return (CLX_METRIC_REGISTRY[tierKey] || {})[key] || null;
+}
+
+const CLX_TIER_COUNTS = {
+  "1A": TIER1A_FAMILIES.map((f) => ({ id: f.id, count: f.stores, modalState: f.modalState.split(" (")[0].trim(), dc: f.dc.split(" (")[0].trim() })),
+  "1B": TIER1B_FAMILIES.map((f) => ({ id: f.id, count: f.stores })),
+  "2":  TIER2_COMMERCIAL_CLUSTERS.map((c) => ({ id: c.id, count: c.stores })),
+  "4":  TIER4_PROFILES.map((p) => ({ id: p.id, count: { P1: 96, P2: 104, P3: 60 }[p.id] || 60 })),
+};
+
+/**
+ * buildClusterRosters(tierKey) → array of store objects:
+ *   { id, storeNo, name, state, clusterId, ...every registry metric value }
+ * Deterministic: same seed produces the same roster every render. Every clustering
+ * metric for the tier gets a value (numeric number or categorical string) so the
+ * results view can plot/aggregate whichever metrics the user has selected.
+ */
+export function buildClusterRosters(tierKey) {
+  const clusters = CLX_TIER_COUNTS[tierKey] || [];
+  const registry = CLX_METRIC_REGISTRY[tierKey] || {};
+  const registryEntries = Object.entries(registry);
+  const stores = [];
+  let uid = 0;
+  clusters.forEach((cl) => {
+    const rand = clxMulberry32(clxHash(`${tierKey}|${cl.id}`));
+    for (let i = 0; i < cl.count; i++) {
+      uid++;
+      let state;
+      if (cl.modalState && rand() < 0.6) state = cl.modalState;
+      else state = CLX_STATES[Math.floor(rand() * CLX_STATES.length)];
+      const cities = CLX_STATE_CITIES[state] || [];
+      const city = cities.length ? cities[i % cities.length] : `${state} Metro`;
+      const store = {
+        id: `${tierKey}-${uid}`,
+        storeNo: 100 + uid,
+        name: `${city}, ${state}`,
+        state,
+        clusterId: cl.id,
+      };
+      registryEntries.forEach(([key, m]) => {
+        const cspec = m.byCluster[cl.id];
+        store[key] = m.kind === "categorical"
+          ? clxSampleCategory(m.categories, cspec, rand())
+          : clxSampleMetric(cspec, rand());
+      });
+      stores.push(store);
+    }
+  });
+  return stores;
+}
+
+// Agent-generated one-liner characterizing each cluster (shown per-cluster in every step).
+const CLX_CLUSTER_BLURBS = {
+  "1A": {
+    A: "Large, mature big-box stores across dense Northeast suburbs.",
+    B: "Mid-size Western stores reliant on long-haul DC freight.",
+    C: "High-square-foot prototypes in pro-heavy Texas markets.",
+    D: "Mature Florida stores with high humidity & climate exposure.",
+    E: "Newer cold-climate suburban stores across the Midwest.",
+    F: "Compact, hub-adjacent stores throughout the Southeast.",
+  },
+  "1B": {
+    M1: "Dense, older-home metros with heavy remodel demand.",
+    M2: "Affluent, high-income trade areas skewed to home improvement.",
+    M3: "Contractor-rich trade areas with the highest pro density.",
+    M4: "Fast-growing value markets of new single-family homes.",
+  },
+  "2": {
+    "1": "Fast sellers with lean supply — protect in-stocks.",
+    "2": "Healthy turns with room to trade the mix up.",
+    "3": "Sluggish sell-through and bloated supply — trim breadth.",
+    "4": "Severe overbuy with near-zero GMROI — freeze receipts.",
+  },
+  "4": {
+    P1: "Premium smooth finishes skewing Best-tier and higher ASP.",
+    P2: "Rustic wirebrushed oak — strongest local affinity, lowest risk.",
+    P3: "Value dark tones carrying elevated style-mismatch risk.",
+  },
+};
+
+export const CLUSTER_EXPLORER_CONFIG = {
+  "1A": {
+    tierLabel: "Store Structure",
+    countLabel: "Structure Families",
+    clusters: TIER1A_FAMILIES.map((f) => ({ id: f.id, label: f.label, color: LABEL_COLORS.structure[f.id], insight: f.businessRead, blurb: CLX_CLUSTER_BLURBS["1A"][f.id] })),
+    storeMetric: { key: "location_sqft", label: "SqFt", format: "k" },
+  },
+  "1B": {
+    tierLabel: "Market Context",
+    countLabel: "Market Families",
+    clusters: TIER1B_FAMILIES.map((f) => ({ id: f.id, label: f.merchantName, color: LABEL_COLORS.market[f.id], insight: f.businessRead, blurb: CLX_CLUSTER_BLURBS["1B"][f.id] })),
+    storeMetric: { key: "ACS_median_inc", label: "Income", format: "usd" },
+  },
+  "2": {
+    tierLabel: "Commercial Performance",
+    countLabel: "Commercial Clusters",
+    clusters: TIER2_COMMERCIAL_CLUSTERS.map((c) => ({
+      id: c.id, label: c.label, color: LABEL_COLORS.commercial[c.id],
+      blurb: CLX_CLUSTER_BLURBS["2"][c.id],
+      insight: {
+        "1": "Top-decile sell-through with lean days of supply — protect in-stocks and expand hero depth.",
+        "2": "Healthy turns with room to trade the mix up; monitor for seasonal swings.",
+        "3": "Elevated days of supply and soft sell-through — trim breadth and rebalance receipts.",
+        "4": "Severe overbuy (1,500+ DOS, ~0 GMROI). Freeze open orders and clear standing inventory.",
+      }[c.id] || "",
+    })),
+    storeMetric: { key: "category_dos", label: "DOS", format: "days" },
+  },
+  "4": {
+    tierLabel: "Product Profile",
+    countLabel: "Style Profiles",
+    clusters: TIER4_PROFILES.map((p) => ({
+      id: p.id, label: p.label, color: LABEL_COLORS.style[p.id],
+      blurb: CLX_CLUSTER_BLURBS["4"][p.id],
+      insight: {
+        P1: "Premium smooth finishes skew Best-tier; support higher ASP and a curated, shallow depth.",
+        P2: "Rustic wirebrushed oak dominates with the strongest local affinity and lowest mismatch risk.",
+        P3: "Value dark tones carry high style-mismatch risk; prune breadth and localize carefully.",
+      }[p.id] || "",
+    })),
+    storeMetric: { key: "goodBetterBest", label: "Price Tier", format: "text" },
+  },
 };

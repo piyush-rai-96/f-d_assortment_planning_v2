@@ -248,6 +248,14 @@ html,
 body,
 #root {
   height: 100%;
+  /* The app shell owns scrolling internally (.fd-content). Without this,
+     any sub-pixel overflow or scroll-chaining (e.g. mouse wheel bubbling
+     past an internal scroller, or focus-driven scrollIntoView) can nudge
+     the document itself, which desyncs every `position: sticky` element
+     scoped to .fd-content — they silently stop tracking and slide behind
+     the fixed header. Locking the document to the viewport guarantees all
+     scrolling stays inside .fd-content, where sticky is correctly anchored. */
+  overflow: hidden;
 }
 
 body {

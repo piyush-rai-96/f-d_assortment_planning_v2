@@ -6,14 +6,20 @@
  *   "dashboard" → "wizard" (step 0-4) → "terminal" → "review" → "dashboard"
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import Highcharts from "highcharts";
 import "highcharts/highcharts-more"; // Highcharts v12: self-registers polar/more as a side effect
 import HighchartsReact from "highcharts-react-official";
+import { geoAlbers, geoPath } from "d3-geo";
+import { feature } from "topojson-client";
+import usStatesTopology from "us-atlas/states-10m.json";
 import { Card, Badge, Button, Chips } from "impact-ui";
-import { AlertTriangle, CheckCircle2, Cpu, ChevronRight, ArrowLeft, Zap, Lock, Star } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cpu, ChevronRight, ArrowLeft, Zap, Lock, Star, LayoutDashboard, BarChart3, DollarSign, Palette, Pencil, Store, Layers, Radio, X, Users, ArrowLeftRight, Maximize2, Sparkles, SlidersHorizontal } from "lucide-react";
 import Text from "../components/Text.jsx";
 import Stack from "../components/Stack.jsx";
 import StepIndicator from "../components/StepIndicator.jsx";
+import FdSelect from "../components/FdSelect.jsx";
+import { FD_STORES } from "../data/stores.js";
 import { panelSx, softSx, elevatedSx } from "../styles/panelSx.js";
 import { color } from "../styles/tokens.js";
 import {
@@ -28,13 +34,16 @@ import {
   TIER1A_METRICS, TIER1A_FAMILIES, TIER1A_SQFT_DISPERSION, TIER1A_AGE_DISPERSION, TIER1A_MICRO_INSIGHT,
   TIER1B_METRICS, TIER1B_FAMILIES, TIER1B_SIGNAL_MATRIX, TIER1B_MICRO_INSIGHT,
   SCOPE_HIERARCHY, TIER2_METRICS, TIER2_COMMERCIAL_CLUSTERS, TIER2_COMPARISON_TABLE, TIER2_AI_ALERT,
-  COLD_START_STORES, PROXY_MATCHES, COLD_START_AI_READ,
   TIER4_METRICS, TIER4_PROFILES, TIER4_TELEMETRY,
   TERMINAL_LOG_LINES,
   STUDIO_SCENARIOS, AGENT_SCENARIO_RECOMMENDATION, SCENARIO_FULL_CLUSTERS, SKU_SCORECARD,
   STUDIO_WIZARD_DEFAULTS,
   LABEL_COLORS,
   TIER_WORK_LOGS,
+  CLUSTER_EXPLORER_CONFIG,
+  CLX_METRIC_REGISTRY,
+  getClxMetric,
+  buildClusterRosters,
 } from "../data/agenticClustering.js";
 import "./AgenticClustering.css";
 
@@ -146,7 +155,7 @@ function WizardFooter({ tierLabel, onFinalize, onProceed, proceedLabel = "Procee
   return (
     <div className="acs-wizard-footer">
       <Button variant="secondary" size="medium" onClick={onFinalize}>
-        🛑 Save &amp; Finalize at {tierLabel}
+        <Lock size={14} style={{ marginRight: 6 }} /> Save &amp; Finalize at {tierLabel}
       </Button>
       <Button variant="primary" size="medium" onClick={onProceed}>
         {proceedLabel}
@@ -156,24 +165,25 @@ function WizardFooter({ tierLabel, onFinalize, onProceed, proceedLabel = "Procee
 }
 
 /** Highcharts 6-axis spider/radar chart */
-function SpiderChart({ axes, values, networkValues, title, height = 280 }) {
+function SpiderChart({ axes, values, networkValues, title, height = 280, showLegend = true }) {
   const options = useMemo(() => ({
     chart: {
       polar: true,
       type: "area",
       backgroundColor: "transparent",
-      margin: [20, 20, 20, 20],
+      margin: showLegend ? [22, 26, 44, 26] : [26, 30, 26, 30],
       height,
     },
     title: { text: null },
-    pane: { size: "78%" },
+    pane: { size: "70%" },
     xAxis: {
       categories: axes,
       tickmarkPlacement: "on",
       lineWidth: 0,
       gridLineColor: "rgba(128,128,128,0.2)",
       labels: {
-        style: { color: "var(--color-text-muted)", fontSize: "10px", fontFamily: "inherit" },
+        distance: 12,
+        style: { color: "var(--color-text-muted)", fontSize: "10px", fontFamily: "inherit", fontWeight: "600" },
       },
     },
     yAxis: {
@@ -191,6 +201,7 @@ function SpiderChart({ axes, values, networkValues, title, height = 280 }) {
       style: { fontSize: "11px" },
     },
     legend: {
+      enabled: showLegend,
       align: "center",
       verticalAlign: "bottom",
       itemStyle: { color: "var(--color-text)", fontSize: "11px", fontWeight: "500" },
@@ -219,7 +230,7 @@ function SpiderChart({ axes, values, networkValues, title, height = 280 }) {
         : null,
     ].filter(Boolean),
     credits: { enabled: false },
-  }), [axes, values, networkValues, title, height]);
+  }), [axes, values, networkValues, title, height, showLegend]);
 
   return <HighchartsReact highcharts={Highcharts} options={options} />;
 }
@@ -299,6 +310,8 @@ function CommandCenter({ onViewCluster, onNewRun }) {
 
   const selectedRun    = STUDIO_RUN_HISTORY.find((r) => r.id === selectedRunId);
   const allClusters    = CLUSTERS_BY_RUN[selectedRunId] || [];
+  // Run-level "View" opens the deep-dive at the first cluster that has detail data.
+  const firstViewable  = allClusters.find((cl) => CLUSTER_DEEP_DIVE[cl.id]);
 
   // Derived: filtered cluster list
   const filteredClusters = useMemo(() => {
@@ -339,8 +352,8 @@ function CommandCenter({ onViewCluster, onNewRun }) {
         </div>
         {/* Embedded CTA — requirement 4 */}
         <button className="acs-banner-cta" onClick={onNewRun}>
-          <Zap size={13} />
-          ⚡ Create New Cluster Run
+          <span className="acs-banner-cta-ico"><Zap size={14} /></span>
+          Create New Cluster Run
         </button>
       </div>
 
@@ -393,7 +406,7 @@ function CommandCenter({ onViewCluster, onNewRun }) {
                 <th style={{ width: 28 }} />
                 <th>Scenario</th>
                 <th>Merchandise Hierarchy</th>
-                <th>Tiers</th>
+                <th>Steps</th>
                 <th>Silhouette</th>
                 <th>Clusters</th>
                 <th>Status</th>
@@ -491,13 +504,18 @@ function CommandCenter({ onViewCluster, onNewRun }) {
               )}
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexShrink: 0 }}>
-            {selectedRun?.status === "live"
-              ? <Badge variant="subtle" size="small" color="success" label="LIVE" />
-              : <Badge variant="subtle" size="small" color="neutral" label="ARCHIVED" />}
-            <Text variant="micro" tone="muted" style={{ marginTop: 3 }}>
-              {filteredClusters.length}/{allClusters.length} cluster{allClusters.length !== 1 ? "s" : ""}
-            </Text>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+              {selectedRun?.status === "live"
+                ? <Badge variant="subtle" size="small" color="success" label="LIVE" />
+                : <Badge variant="subtle" size="small" color="neutral" label="ARCHIVED" />}
+              <Text variant="micro" tone="muted">
+                {filteredClusters.length}/{allClusters.length} cluster{allClusters.length !== 1 ? "s" : ""}
+              </Text>
+            </div>
+            {firstViewable
+              ? <Button variant="primary" size="small" onClick={() => onViewCluster(firstViewable.id)}>View Run →</Button>
+              : <Button variant="secondary" size="small" disabled>No detail data</Button>}
           </div>
         </div>
 
@@ -539,10 +557,11 @@ function CommandCenter({ onViewCluster, onNewRun }) {
                   <th>Cluster Name</th>
                   <th>Stores</th>
                   <th>Avg SqFt</th>
-                  <th>Pro Index</th>
+                  <th>Sales / SqFt</th>
+                  <th>GMROI</th>
+                  <th>DOS</th>
                   <th>Cohesion</th>
                   <th>Status</th>
-                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -571,11 +590,25 @@ function CommandCenter({ onViewCluster, onNewRun }) {
                       {/* Avg sqft */}
                       <td><Text variant="micro" tone="muted">{fmtSqft(cl.avgSqft)}</Text></td>
 
-                      {/* Pro Index */}
+                      {/* Category Sales / SqFt */}
                       <td>
-                        <span className={`acs-pro-index${cl.proIndex >= 2 ? " high" : ""}`}>
-                          {cl.proIndex}x
-                        </span>
+                        {cl.salesSqft != null
+                          ? <Text variant="micro" mono style={{ fontWeight: 700 }}>${cl.salesSqft.toFixed(0)}</Text>
+                          : <span className="acs-blank-cell">—</span>}
+                      </td>
+
+                      {/* GMROI */}
+                      <td>
+                        {cl.gmroi != null
+                          ? <span className={`acs-pro-index${cl.gmroi >= 2.5 ? " high" : ""}`}>{cl.gmroi.toFixed(1)}×</span>
+                          : <span className="acs-blank-cell">—</span>}
+                      </td>
+
+                      {/* Days of Supply */}
+                      <td>
+                        {cl.dos != null
+                          ? <Text variant="micro" mono style={{ fontWeight: cl.dos > 250 ? 800 : 400, color: cl.dos > 250 ? color.error : color.text }}>{cl.dos}d</Text>
+                          : <span className="acs-blank-cell">—</span>}
                       </td>
 
                       {/* Cohesion gradient bar */}
@@ -583,13 +616,6 @@ function CommandCenter({ onViewCluster, onNewRun }) {
 
                       {/* Status dot badge */}
                       <td><StatusBadge status={cl.status} /></td>
-
-                      {/* Action */}
-                      <td>
-                        {CLUSTER_DEEP_DIVE[cl.id]
-                          ? <Button variant="secondary" size="small" onClick={() => onViewCluster(cl.id)}>View →</Button>
-                          : <Text variant="micro" tone="muted" style={{ fontStyle: "italic" }}>Archived</Text>}
-                      </td>
                     </tr>
                   );
                 })}
@@ -677,24 +703,33 @@ function GBBBar({ ratio }) {
   );
 }
 
+const DD_TABS = [
+  { id: "overall",    label: "Overall" },
+  { id: "structure",  label: "Step 1 · Store Structure" },
+  { id: "market",     label: "Step 2 · Market Context" },
+  { id: "commercial", label: "Step 3 · Commercial" },
+  { id: "product",    label: "Step 4 · Product Profile" },
+];
+
 function ClusterDeepDive({ clusterId, onBack, onSwitchCluster }) {
   const data      = CLUSTER_DEEP_DIVE[clusterId];
   const telemetry = CLUSTER_COMMERCIAL_TELEMETRY[clusterId];
   const signals   = CLUSTER_SIGNAL_BARS[clusterId] || [];
   const members   = CLUSTER_MEMBER_STORES[clusterId] || [];
   const [rosterSearch, setRosterSearch] = useState("");
-
-  if (!data) return null;
-
-  const spiderValues = Object.values(data.spiderAxes);
-  const parsed       = parseLabel(clusterId);
-  const allClusterIds = Object.keys(CLUSTER_DEEP_DIVE);
+  const [tab, setTab] = useState("overall");
 
   const filteredMembers = useMemo(() => {
     const q = rosterSearch.trim().toLowerCase();
     if (!q) return members;
     return members.filter((s) => s.name.toLowerCase().includes(q) || String(s.id).includes(q));
   }, [members, rosterSearch]);
+
+  if (!data) return null;
+
+  const spiderValues = Object.values(data.spiderAxes);
+  const parsed       = parseLabel(clusterId);
+  const allClusterIds = Object.keys(CLUSTER_DEEP_DIVE);
 
   return (
     <div className="acs-screen">
@@ -705,15 +740,12 @@ function ClusterDeepDive({ clusterId, onBack, onSwitchCluster }) {
           <ArrowLeft size={14} /> Back to Command Center
         </button>
         <div className="acs-cluster-switcher-wrap">
-          <select
-            className="acs-cluster-switcher"
+          <FdSelect
             value={clusterId}
-            onChange={(e) => onSwitchCluster && onSwitchCluster(e.target.value)}
-          >
-            {allClusterIds.map((id) => (
-              <option key={id} value={id}>{id}: {CLUSTER_DEEP_DIVE[id].label}</option>
-            ))}
-          </select>
+            width={340}
+            options={allClusterIds.map((id) => ({ value: id, label: `${id} · ${CLUSTER_DEEP_DIVE[id].label}` }))}
+            onChange={(v) => onSwitchCluster && onSwitchCluster(v)}
+          />
         </div>
         <button className="acs-scenario-dash-btn" onClick={onBack}>
           📊 View Full Scenario Dashboard
@@ -759,6 +791,24 @@ function ClusterDeepDive({ clusterId, onBack, onSwitchCluster }) {
         </div>
       </div>
 
+      {/* ── Step / Overall tab strip ──────────────────────────────────────── */}
+      <div className="acs-dd-tabs" role="tablist">
+        {DD_TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`acs-dd-tab${tab === t.id ? " active" : ""}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ══ OVERALL ═══════════════════════════════════════════════════════ */}
+      {tab === "overall" && (
+      <>
       {/* ── Top split: Spider + Spatial/Proxy ────────────────────────────── */}
       <div className="acs-deep-split">
 
@@ -814,7 +864,7 @@ function ClusterDeepDive({ clusterId, onBack, onSwitchCluster }) {
               </div>
               <div className="acs-proxy-lock-banner">
                 <Lock size={11} />
-                <span>Tier 2 &amp; 4 signals locked for cold-start. Demand borrowed from peer cohort via z-score distance weights.</span>
+                <span>Step 3 &amp; 5 signals locked for cold-start. Demand borrowed from peer cohort via z-score distance weights.</span>
               </div>
             </>
           ) : (
@@ -824,8 +874,27 @@ function ClusterDeepDive({ clusterId, onBack, onSwitchCluster }) {
           )}
         </Card>
       </div>
+      </>
+      )}
 
+      {/* ══ STORE STRUCTURE ═══════════════════════════════════════════════ */}
       {/* ── Baseline Anatomy: 4 Boxplots ─────────────────────────────────── */}
+      {(tab === "structure") && (
+      <>
+      <div className="acs-dd-summary-grid">
+        {[
+          { label: "Stores in Cluster", value: data.stores, sub: "network members" },
+          { label: "Avg Store SqFt",    value: data.avgSqft.toLocaleString(), sub: "footprint" },
+          { label: "Cohesion",          value: data.cohesion.toFixed(2), sub: "intra-cluster fit" },
+          { label: "Pro Index",         value: `${data.proIndex}×`, sub: "vs national avg" },
+        ].map((k) => (
+          <div key={k.label} className="acs-dd-summary-card">
+            <div className="acs-dd-summary-label">{k.label}</div>
+            <div className="acs-dd-summary-value">{k.value}</div>
+            <div className="acs-dd-summary-sub">{k.sub}</div>
+          </div>
+        ))}
+      </div>
       <Card sx={{ ...panelSx, padding: 0 }}>
         <div className="acs-section-header">
           <Text variant="body-strong" tone="strong">Baseline Anatomy — Structure Dispersion</Text>
@@ -857,6 +926,20 @@ function ClusterDeepDive({ clusterId, onBack, onSwitchCluster }) {
         </div>
       </Card>
 
+      </>
+      )}
+
+      {/* ══ MARKET CONTEXT ════════════════════════════════════════════════ */}
+      {tab === "market" && (
+      <>
+      {/* Market DNA radar */}
+      <Card sx={{ ...panelSx, padding: 0 }}>
+        <div className="acs-section-header" style={{ paddingBottom: 0 }}>
+          <Text variant="body-strong" tone="strong">Cluster DNA — 6-Axis Radar</Text>
+          <Badge variant="subtle" size="small" color="neutral" label="vs Network Avg" />
+        </div>
+        <SpiderChart axes={SPIDER_AXES} values={spiderValues} networkValues={NETWORK_AVG} title={data.label} height={300} />
+      </Card>
       {/* ── Market Signal Heatmap Bar ─────────────────────────────────────── */}
       <Card sx={panelSx}>
         <Text variant="body-strong" tone="strong" style={{ marginBottom: 16, display: "block" }}>
@@ -866,9 +949,11 @@ function ClusterDeepDive({ clusterId, onBack, onSwitchCluster }) {
           {signals.map((s) => <SignalBar key={s.label} {...s} />)}
         </div>
       </Card>
+      </>
+      )}
 
-      {/* ── Commercial & Taste Telemetry ─────────────────────────────────── */}
-      {telemetry && (
+      {/* ══ COMMERCIAL ════════════════════════════════════════════════════ */}
+      {tab === "commercial" && telemetry && (
         <div className="acs-telemetry-section">
           {/* KPI Cards */}
           <div className="acs-telemetry-kpi-grid">
@@ -885,24 +970,31 @@ function ClusterDeepDive({ clusterId, onBack, onSwitchCluster }) {
               </div>
             ))}
           </div>
-
-          {/* Finish Share + GBB */}
-          <div className="acs-taste-split">
-            <Card sx={softSx}>
-              <Text variant="caption" style={{ fontWeight: 700, display: "block", marginBottom: 4 }}>Finish Share</Text>
-              <Text variant="micro" tone="muted">% of category units sold by finish type</Text>
-              <FinishShareBar shares={telemetry.finishShare} />
-            </Card>
-            <Card sx={softSx}>
-              <Text variant="caption" style={{ fontWeight: 700, display: "block", marginBottom: 4 }}>GBB Price Tier Mix</Text>
-              <Text variant="micro" tone="muted">Good / Better / Best unit share</Text>
-              <GBBBar ratio={telemetry.gbbRatio} />
-            </Card>
-          </div>
         </div>
       )}
 
-      {/* ── Member Store Roster ───────────────────────────────────────────── */}
+      {/* ══ PRODUCT PROFILE ═══════════════════════════════════════════════ */}
+      {tab === "product" && (
+      <>
+      {telemetry && (
+        <div className="acs-taste-split">
+          <Card sx={softSx}>
+            <Text variant="caption" style={{ fontWeight: 700, display: "block", marginBottom: 4 }}>Finish Share</Text>
+            <Text variant="micro" tone="muted">% of category units sold by finish type</Text>
+            <FinishShareBar shares={telemetry.finishShare} />
+          </Card>
+          <Card sx={softSx}>
+            <Text variant="caption" style={{ fontWeight: 700, display: "block", marginBottom: 4 }}>GBB Price Tier Mix</Text>
+            <Text variant="micro" tone="muted">Good / Better / Best unit share</Text>
+            <GBBBar ratio={telemetry.gbbRatio} />
+          </Card>
+        </div>
+      )}
+      </>
+      )}
+
+      {/* ══ OVERALL · Member Store Roster ─────────────────────────────────── */}
+      {tab === "overall" && (
       <Card sx={{ ...panelSx, padding: 0 }}>
         <div className="acs-section-header">
           <div>
@@ -979,9 +1071,10 @@ function ClusterDeepDive({ clusterId, onBack, onSwitchCluster }) {
           </table>
         </div>
       </Card>
+      )}
 
-      {/* ── Label Breakdown ───────────────────────────────────────────────── */}
-      {parsed && (
+      {/* ══ OVERALL · Label Breakdown ─────────────────────────────────────── */}
+      {tab === "overall" && parsed && (
         <Card sx={softSx}>
           <Text variant="body-strong" tone="strong" style={{ marginBottom: 12, display: "block" }}>4-Part Label Breakdown</Text>
           <div className="acs-label-breakdown">
@@ -1007,6 +1100,21 @@ function ClusterDeepDive({ clusterId, onBack, onSwitchCluster }) {
 // ─── SCREEN 3a: Launcher Modal (Step 0) ──────────────────────────────────────
 
 const NEXT_RUN_ID = "CR-020";
+
+// Guided path shown on the launcher — plain sequential Steps, no tier jargon.
+const LAUNCH_STEPS = [
+  { label: "Channel & Store Scope", note: "Choose the demand channel and the store network to cluster" },
+  { label: "Store Structure",       note: "Footprint, store age, DC proximity and geo coordinates" },
+  { label: "Market Context",        note: "Census, household income, home values and FEMA risk signals" },
+  { label: "Commercial Scope",      note: "Pick the merchandise hierarchy · Sales/SqFt, DOS, GMROI" },
+  { label: "Taste Profile",         note: "Finish, species and Good / Better / Best price mix" },
+];
+
+const NAME_SUGGESTIONS = [
+  "SS26 Solid Wood — Full Network Reset",
+  "FW26 Tile Line Review",
+  "SS26 LVP Proxy Inject",
+];
 
 function LauncherModal({ onBack, onNext }) {
   const [scenarioName, setScenarioName] = useState("");
@@ -1044,22 +1152,17 @@ function LauncherModal({ onBack, onNext }) {
           <div style={{ width: 80 }} />
         </div>
 
-        {/* Run ID chip */}
-        <div className="acs-launcher-run-id-row">
-          <span className="acs-launcher-run-id-chip">
-            <span className="acs-launcher-run-id-label">System Run ID</span>
-            <span className="acs-launcher-run-id-value">{NEXT_RUN_ID}</span>
-            <span className="acs-launcher-run-id-note">auto-generated · read-only</span>
-          </span>
-        </div>
-
-        {/* Scenario name — only input required */}
-        <div className="acs-launcher-section">
-          <div className="acs-launcher-section-num">01</div>
-          <div className="acs-launcher-section-body">
-            <div className="acs-launcher-section-title">Custom Scenario Name</div>
-            <div className="acs-launcher-section-desc">
-              Give this run a descriptive name to identify it in the Command Center roster.
+        {/* Scenario name — Impact UI card */}
+        <Card sx={{ ...elevatedSx, padding: 0, overflow: "hidden" }}>
+          <div className="acs-launcher-namecard">
+            <div className="acs-launcher-namecard-head">
+              <span className="acs-launcher-step-index">1</span>
+              <div>
+                <div className="acs-launcher-section-title">Name this clustering scenario</div>
+                <div className="acs-launcher-section-desc">
+                  A clear name makes this run easy to find in the Command Center roster.
+                </div>
+              </div>
             </div>
             <input
               className="acs-launcher-name-input"
@@ -1071,40 +1174,38 @@ function LauncherModal({ onBack, onNext }) {
             />
             <div className="acs-launcher-char-count">{scenarioName.length}/80</div>
             <div className="acs-launcher-suggestions">
-              {["SS26 Solid Wood — Full Network Reset", "FW26 Tile Line Review", "SS26 LVP Proxy Inject"].map((s) => (
+              {NAME_SUGGESTIONS.map((s) => (
                 <button key={s} className="acs-launcher-suggestion-chip" onClick={() => setScenarioName(s)}>
                   {s}
                 </button>
               ))}
             </div>
           </div>
-        </div>
+        </Card>
 
-        {/* Tier pipeline info card */}
-        <div className="acs-launcher-tier-info">
-          <div className="acs-launcher-tier-info-title">
-            <Cpu size={13} style={{ marginRight: 6, opacity: 0.7 }} />
-            What happens next
+        {/* Guided path — Impact UI card with numbered stepper */}
+        <Card sx={{ ...softSx, padding: 0, overflow: "hidden" }}>
+          <div className="acs-launcher-steps">
+            <div className="acs-launcher-steps-head">
+              <span className="acs-launcher-steps-head-title">
+                <Cpu size={14} style={{ marginRight: 7, opacity: 0.7 }} />
+                Your guided path
+              </span>
+              <Badge variant="subtle" size="small" color="info" label={`${LAUNCH_STEPS.length} Steps`} />
+            </div>
+            <ol className="acs-launcher-steps-list">
+              {LAUNCH_STEPS.map((s, i) => (
+                <li key={s.label} className="acs-launcher-step-row">
+                  <span className="acs-launcher-step-dot">{i + 1}</span>
+                  <div className="acs-launcher-step-text">
+                    <div className="acs-launcher-step-label">{s.label}</div>
+                    <div className="acs-launcher-step-note">{s.note}</div>
+                  </div>
+                </li>
+              ))}
+            </ol>
           </div>
-          <div className="acs-launcher-tier-steps">
-            {[
-              { label: "Channel & Store Scope",       note: "Select demand channel and store network",                            tag: "Step 1" },
-              { label: "Tier 1A — Store Structure",   note: "Hierarchy-independent · SqFt, Age, DC, Lat/Lon",                    tag: "Tier 1A" },
-              { label: "Tier 1B — Market Context",    note: "Hierarchy-independent · Census, Income, ZHVI, FEMA",               tag: "Tier 1B" },
-              { label: "Tier 2 — Commercial Scope",   note: "Scope-dependent · Select hierarchy here · Sales/SqFt, DOS, GMROI", tag: "Tier 2" },
-              { label: "Cold-Start Proxy Inject",     note: "Auto-detect new stores · assign proxy anchors",                    tag: "CS" },
-              { label: "Tier 4 — Taste Profile",      note: "Scope-dependent · Finish, Species, GBB mix",                      tag: "Tier 4" },
-            ].map((step) => (
-              <div key={step.tag} className="acs-launcher-tier-step">
-                <span className="acs-launcher-tier-tag">{step.tag}</span>
-                <div>
-                  <div className="acs-launcher-tier-step-label">{step.label}</div>
-                  <div className="acs-launcher-tier-step-note">{step.note}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        </Card>
 
         {/* CTA */}
         <div className="acs-launcher-cta-row">
@@ -1122,57 +1223,101 @@ function LauncherModal({ onBack, onNext }) {
 // ─── SCREEN 3b: Scope Selection (channel + store network) ────────────────────
 
 const CHANNELS = [
-  { id: "all",       label: "All Channels",    icon: "⊙", desc: "Blend in-store, pro & online demand signals"   },
-  { id: "pro",       label: "Pro / Contractor", icon: "🔧", desc: "Contractor & trade account velocity only"      },
-  { id: "retail",    label: "In-Store Retail",  icon: "🏪", desc: "Consumer walk-in demand, excludes pro SKUs"    },
-  { id: "ecomm",     label: "E-Commerce",       icon: "🌐", desc: "Online-only order demand & ship-from-store"    },
+  { id: "all",       label: "All Channels",     desc: "Blend in-store & online demand signals"    },
+  { id: "retail",    label: "In-Store Retail",  desc: "Consumer walk-in demand"                   },
+  { id: "ecomm",     label: "E-Commerce",       desc: "Online-only order demand & ship-from-store" },
 ];
+
+// Store network coverage per channel. In-store retail spans the full physical
+// network; e-commerce is fulfilled from a smaller set of ship-from-store nodes.
+// The store universe re-scopes to the union of the selected channels.
+const CHANNEL_NETWORK = { all: 260, retail: 260, ecomm: 188 };
+function channelNetworkSize(channels) {
+  if (!channels || !channels.length) return 260;
+  return Math.max(...channels.map((c) => CHANNEL_NETWORK[c] ?? 260));
+}
 
 const STORE_SCOPE_OPTIONS = [
-  { id: "all",     label: "All Stores",        icon: "◉", desc: "Run clustering across the full 260-store network" },
-  { id: "region",  label: "By Region",         icon: "⊡", desc: "Scope to one or more geographic regions"          },
-  { id: "stores",  label: "Specific Stores",   icon: "⊞", desc: "Manually select individual store IDs"             },
+  { id: "all",     label: "All Stores — Full Network (260)", desc: "Run clustering across the full 260-store network"     },
+  { id: "region",  label: "By Region Group",                 desc: "Scope to one or more geographic region groups"        },
+  { id: "custom",  label: "Custom Stores",                   desc: "Hand-pick individual stores and/or add whole groups"  },
 ];
 
-const STORE_REGIONS = ["Northeast", "Southeast", "Midwest", "Texas / South Central", "Pacific West / Mountain", "Florida Peninsula"];
+// Region groups derived from the live store network, sorted alphabetically.
+const STORE_REGIONS = [...new Set(FD_STORES.map((s) => s.region))].sort();
 
 const SCOPE_STEPS = [
-  { id: 0, label: "Channel",    desc: "Select demand channel" },
-  { id: 1, label: "Scope",      desc: "Merchandise hierarchy" },
-  { id: 2, label: "Stores",     desc: "Store network scope"   },
-  { id: 3, label: "Review",     desc: "Review & launch"       },
+  { id: 0, label: "Scope & Context", desc: "Channel, hierarchy & store universe" },
+  { id: 1, label: "Review & Launch", desc: "Confirm & run"                       },
 ];
 
 function ScopeSelectionScreen({ onBack, onLaunch }) {
   const [subStep, setSubStep]         = useState(0);
   const [animKey, setAnimKey]         = useState(0);
-  const [channel, setChannel]         = useState(null);
-  const [scopeL1, setScopeL1]         = useState("");
-  const [scopeL2, setScopeL2]         = useState("");
-  const [scopeL3, setScopeL3]         = useState("");
-  const [scopeL4, setScopeL4]         = useState("");
-  const [storeScope, setStoreScope]   = useState(null);
-  const [selRegions, setSelRegions]   = useState([]);
-  const [storeInput, setStoreInput]   = useState("");
+  const [channels, setChannels]       = useState([]);   // multi-select
+  const [scopeL1, setScopeL1]         = useState([]);   // multi-select
+  const [scopeL2, setScopeL2]         = useState([]);
+  const [scopeL3, setScopeL3]         = useState([]);
+  const [scopeL4, setScopeL4]         = useState([]);
+  const [storeScope, setStoreScope]   = useState("all");   // default: all stores per channel
+  const [selRegions, setSelRegions]   = useState([]);   // region-group scope
+  const [selGroups, setSelGroups]     = useState([]);   // quick-add groups (custom)
+  const [selStores, setSelStores]     = useState([]);   // individual store ids (custom)
   const [launching, setLaunching]     = useState(false);
 
-  const advance = (n = 1) => { setSubStep((s) => s + n); setAnimKey((k) => k + 1); };
-  const back    = (n = 1) => { setSubStep((s) => s - n); setAnimKey((k) => k + 1); };
+  const advance  = (n = 1) => { setSubStep((s) => s + n); setAnimKey((k) => k + 1); };
+  const back     = (n = 1) => { setSubStep((s) => s - n); setAnimKey((k) => k + 1); };
+  const goToStep = (n)     => { setSubStep(n); setAnimKey((k) => k + 1); };
 
-  const l2Options = SCOPE_HIERARCHY.l2[scopeL1] || [];
-  const l3Options = SCOPE_HIERARCHY.l3[`${scopeL1} / ${scopeL2}`] || [];
-  const l4Options = SCOPE_HIERARCHY.l4[`${scopeL1} / ${scopeL2} / ${scopeL3}`] || [];
+  // Cascading options are the UNION of children across every selected parent.
+  const l2Options = useMemo(() => {
+    const set = new Set();
+    scopeL1.forEach((d) => (SCOPE_HIERARCHY.l2[d] || []).forEach((x) => set.add(x)));
+    return [...set];
+  }, [scopeL1]);
+  const l3Options = useMemo(() => {
+    const set = new Set();
+    scopeL1.forEach((d) => scopeL2.forEach((sd) => (SCOPE_HIERARCHY.l3[`${d} / ${sd}`] || []).forEach((x) => set.add(x))));
+    return [...set];
+  }, [scopeL1, scopeL2]);
+  const l4Options = useMemo(() => {
+    const set = new Set();
+    scopeL1.forEach((d) => scopeL2.forEach((sd) => scopeL3.forEach((c) => (SCOPE_HIERARCHY.l4[`${d} / ${sd} / ${c}`] || []).forEach((x) => set.add(x)))));
+    return [...set];
+  }, [scopeL1, scopeL2, scopeL3]);
 
-  const scopeString = [scopeL1, scopeL2, scopeL3, scopeL4].filter(Boolean).join(" › ");
-  const storeString = storeScope === "all" ? "Full Network (260 stores)"
-    : storeScope === "region" ? (selRegions.length ? selRegions.join(", ") : "—")
-    : storeScope === "stores" ? (storeInput || "—")
+  // Prune deeper selections when a parent change makes them invalid.
+  useEffect(() => { setScopeL2((p) => p.filter((v) => l2Options.includes(v))); }, [l2Options]);
+  useEffect(() => { setScopeL3((p) => p.filter((v) => l3Options.includes(v))); }, [l3Options]);
+  useEffect(() => { setScopeL4((p) => p.filter((v) => l4Options.includes(v))); }, [l4Options]);
+
+  // Custom-store resolution: union of individually picked stores + group members.
+  const customStoreIds = useMemo(() => {
+    const set = new Set(selStores.map(Number));
+    FD_STORES.forEach((s) => { if (selGroups.includes(s.region)) set.add(s.id); });
+    return [...set];
+  }, [selStores, selGroups]);
+
+  // Store universe re-scopes to the network size covered by the selected channels.
+  const networkSize = channelNetworkSize(channels);
+
+  const scopeLevels = [scopeL1, scopeL2, scopeL3, scopeL4].filter((lvl) => lvl.length);
+  const scopeString = scopeLevels.map((lvl) => lvl.join(", ")).join(" › ");
+  const storeString = storeScope === "all" ? `Full Network (${networkSize} stores)`
+    : storeScope === "region" ? (selRegions.length ? `${selRegions.length} region group${selRegions.length > 1 ? "s" : ""}` : "—")
+    : storeScope === "custom" ? (customStoreIds.length ? `${customStoreIds.length} store${customStoreIds.length > 1 ? "s" : ""} selected` : "—")
+    : "—";
+  const channelString = channels.length
+    ? channels.map((id) => CHANNELS.find((c) => c.id === id)?.label).filter(Boolean).join(", ")
     : "—";
 
-  const canProceed0 = !!channel;
-  const canProceed1 = !!scopeL2;          // at least 2 levels selected
-  const canProceed2 = !!storeScope;
-  const canLaunch   = canProceed0 && canProceed1 && canProceed2;
+  // Store universe validity (now part of the scope screen)
+  const storeValid = storeScope === "all"
+    || (storeScope === "region" && selRegions.length > 0)
+    || (storeScope === "custom" && customStoreIds.length > 0);
+  // Merged scope screen: channel + Dept & Sub-Dept + a valid store universe
+  const canProceed0 = channels.length > 0 && scopeL2.length > 0 && storeValid;
+  const canLaunch   = canProceed0;
 
   // Brief animated "launching" state before handing off to wizard
   const handleLaunch = () => {
@@ -1180,13 +1325,11 @@ function ScopeSelectionScreen({ onBack, onLaunch }) {
     // CSS animation plays; after it ends the onLaunch prop fires via onAnimationEnd
   };
 
-  const toggleRegion = (r) => setSelRegions((rs) => rs.includes(r) ? rs.filter((x) => x !== r) : [...rs, r]);
-
   const summaryCells = [
-    { label: "Channel",    value: CHANNELS.find((c) => c.id === channel)?.label || "—",  icon: CHANNELS.find((c) => c.id === channel)?.icon || "○" },
-    { label: "Hierarchy",  value: scopeString || "—",  icon: "⊞" },
-    { label: "Store Scope",value: storeString, icon: "◉" },
-    { label: "Tiers",      value: "1A → 1B → 2 → Cold-Start → 4 (All)",  icon: "⚡" },
+    { label: "Channels",    value: channelString,       Icon: Radio,  step: 0 },
+    { label: "Hierarchy",   value: scopeString || "—",  Icon: Layers, step: 0 },
+    { label: "Store Scope", value: storeString,         Icon: Store,  step: 0 },
+    { label: "Pipeline",    value: "Structure → Market → Commercial → Taste", Icon: Zap, step: null },
   ];
 
   return (
@@ -1199,7 +1342,7 @@ function ScopeSelectionScreen({ onBack, onLaunch }) {
         <div style={{ textAlign: "center", flex: 1 }}>
           <Text variant="title" tone="strong">New Cluster Run</Text>
           <Text variant="micro" tone="muted" style={{ display: "block", marginTop: 2 }}>
-            Configure scope, channel and store network before the agent launches
+            Set the merchandising scope and execution context before the agent launches
           </Text>
         </div>
         <div style={{ width: 120 }} />
@@ -1233,208 +1376,286 @@ function ScopeSelectionScreen({ onBack, onLaunch }) {
 
       {/* Progress bar */}
       <div className="acs-scope-progress-track">
-        <div className="acs-scope-progress-fill" style={{ width: `${(subStep / 3) * 100}%` }} />
+        <div className="acs-scope-progress-fill" style={{ width: `${(subStep / (SCOPE_STEPS.length - 1)) * 100}%` }} />
       </div>
 
       {/* Step content — key triggers CSS re-animation */}
       <div className="acs-scope-body" key={animKey}>
 
-        {/* ── Step 0: Channel ──────────────────────────────────────────────── */}
+        {/* ── Step 0: Scope & Execution Context (merged) ───────────────────── */}
         {subStep === 0 && (
           <div className="acs-scope-step acs-step-enter">
             <div className="acs-scope-step-title">
-              <Text variant="heading" tone="strong">Which demand channel should drive clustering?</Text>
-              <Text variant="caption" tone="muted">Channels determine which sales signals feed into the algorithm.</Text>
+              <Text variant="heading" tone="strong">Merchandising Scope &amp; Execution Context</Text>
+              <Text variant="caption" tone="muted">Pick the demand channel, drill the hierarchy to the sub-class, and set the store universe to cluster against.</Text>
             </div>
-            <div className="acs-channel-grid">
-              {CHANNELS.map((ch) => (
-                <div
-                  key={ch.id}
-                  className={`acs-channel-card${channel === ch.id ? " is-selected" : ""}`}
-                  onClick={() => setChannel(ch.id)}
-                >
-                  <div className="acs-channel-icon">{ch.icon}</div>
-                  <Text variant="body-strong" style={{ marginBottom: 4, display: "block" }}>{ch.label}</Text>
-                  <Text variant="micro" tone="muted" style={{ lineHeight: 1.5 }}>{ch.desc}</Text>
-                  {channel === ch.id && <div className="acs-channel-check"><CheckCircle2 size={16} color="var(--color-primary)" /></div>}
+
+            {/* Demand channel & store universe */}
+            <Card sx={{ ...softSx, marginBottom: 0 }}>
+              <div className="acs-cfg-block-head">
+                <span className="acs-cfg-block-badge">1</span>
+                <div>
+                  <Text variant="body-strong" tone="strong">Demand Channel &amp; Store Universe</Text>
+                  <Text variant="micro" tone="muted" style={{ display: "block" }}>
+                    Pick the sales signals to feed the algorithm. All stores in the selected channel run by default — or narrow down to specific regions or stores.
+                  </Text>
                 </div>
-              ))}
-            </div>
+              </div>
+
+              <div className="acs-cfg-grid">
+                <div className="acs-cfg-field">
+                  <FdSelect
+                    label="Channels"
+                    width="100%"
+                    isMulti
+                    isWithSelectAll
+                    value={channels}
+                    options={CHANNELS.map((c) => ({ value: c.id, label: c.label }))}
+                    onChange={setChannels}
+                  />
+                  <Text variant="micro" tone="muted" className="acs-cfg-hint">
+                    {channels.length
+                      ? `${channels.length} channel${channels.length > 1 ? "s" : ""} blended into the demand signal.`
+                      : "Select one or more channels to blend into the demand signal."}
+                  </Text>
+                </div>
+                <div className="acs-cfg-field">
+                  <FdSelect
+                    label="Store Universe"
+                    width="100%"
+                    disabled={channels.length === 0}
+                    placeholder={channels.length === 0 ? "Select a channel first" : "Select store universe…"}
+                    value={channels.length === 0 ? "" : (storeScope || "")}
+                    options={STORE_SCOPE_OPTIONS.map((o) => ({
+                      value: o.id,
+                      label: o.id === "all" ? `All Stores — Full Network (${networkSize})` : o.label,
+                    }))}
+                    onChange={setStoreScope}
+                  />
+                  <Text variant="micro" tone="muted" className="acs-cfg-hint">
+                    {channels.length === 0
+                      ? "Pick one or more channels to unlock the store universe."
+                      : storeScope === "all"
+                        ? (networkSize < 260
+                            ? `Scoped to ${networkSize} ship-from-store nodes for the selected channel${channels.length > 1 ? "s" : ""}.`
+                            : `Run clustering across the full ${networkSize}-store network.`)
+                        : STORE_SCOPE_OPTIONS.find((o) => o.id === storeScope)?.desc}
+                  </Text>
+                </div>
+              </div>
+
+              {storeScope === "region" && (
+                <div className="acs-cfg-field" style={{ marginTop: 16 }}>
+                  <FdSelect
+                    label="Region Groups"
+                    width="100%"
+                    isMulti
+                    isWithSearch
+                    isWithSelectAll
+                    value={selRegions}
+                    options={STORE_REGIONS.map((r) => ({ value: r, label: `${r} (${FD_STORES.filter((s) => s.region === r).length})` }))}
+                    onChange={setSelRegions}
+                  />
+                  {selRegions.length > 0 && (
+                    <Text variant="micro" tone="muted" className="acs-cfg-hint">
+                      {FD_STORES.filter((s) => selRegions.includes(s.region)).length} stores across {selRegions.length} group{selRegions.length > 1 ? "s" : ""}.
+                    </Text>
+                  )}
+                </div>
+              )}
+
+              {storeScope === "custom" && (
+                <div className="acs-cfg-custom" style={{ marginTop: 16 }}>
+                  <div className="acs-cfg-grid">
+                    <div className="acs-cfg-field">
+                      <FdSelect
+                        label="Quick-add by Group"
+                        width="100%"
+                        isMulti
+                        isWithSearch
+                        isWithSelectAll
+                        value={selGroups}
+                        options={STORE_REGIONS.map((r) => ({ value: r, label: `${r} (${FD_STORES.filter((s) => s.region === r).length})` }))}
+                        onChange={setSelGroups}
+                      />
+                    </div>
+                    <div className="acs-cfg-field">
+                      <FdSelect
+                        label="Individual Stores"
+                        width="100%"
+                        isMulti
+                        isWithSearch
+                        value={selStores}
+                        options={FD_STORES.map((s) => ({ value: String(s.id), label: `${s.name} · ${s.state}` }))}
+                        onChange={setSelStores}
+                      />
+                    </div>
+                  </div>
+
+                  {customStoreIds.length > 0 && (
+                    <div className="acs-cfg-store-summary">
+                      <span className="acs-cfg-store-count">
+                        <CheckCircle2 size={13} style={{ marginRight: 5 }} />
+                        {customStoreIds.length} store{customStoreIds.length > 1 ? "s" : ""} selected
+                      </span>
+                      <div className="acs-cfg-store-chips">
+                        {customStoreIds.slice(0, 10).map((id) => {
+                          const st = FD_STORES.find((s) => s.id === id);
+                          return <span key={id} className="acs-cfg-store-chip">{st ? st.name : id}</span>;
+                        })}
+                        {customStoreIds.length > 10 && (
+                          <span className="acs-cfg-store-chip acs-cfg-store-chip-more">+{customStoreIds.length - 10} more</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+
+            {/* Merchandise hierarchy */}
+            <Card sx={{ ...softSx, marginBottom: 0 }}>
+              <div className="acs-cfg-block-head">
+                <span className="acs-cfg-block-badge">2</span>
+                <div>
+                  <Text variant="body-strong" tone="strong">Merchandise Hierarchy</Text>
+                  <Text variant="micro" tone="muted" style={{ display: "block" }}>
+                    Each level unlocks the next. A minimum of Department &amp; Sub-Department is required.
+                  </Text>
+                </div>
+              </div>
+
+              <div className="acs-cfg-grid">
+                <div className="acs-cfg-field">
+                  <FdSelect
+                    label="Department"
+                    width="100%"
+                    isMulti
+                    isWithSearch
+                    isWithSelectAll                    value={scopeL1}
+                    options={SCOPE_HIERARCHY.l1.map((o) => ({ value: o, label: o }))}
+                    onChange={setScopeL1}
+                  />
+                </div>
+                <div className="acs-cfg-field">
+                  <FdSelect
+                    label="Sub-Department"
+                    width="100%"
+                    isMulti
+                    isWithSearch
+                    isWithSelectAll                    disabled={l2Options.length === 0}
+                    value={scopeL2}
+                    options={l2Options.map((o) => ({ value: o, label: o }))}
+                    onChange={setScopeL2}
+                  />
+                </div>
+                <div className="acs-cfg-field">
+                  <FdSelect
+                    label="Class (optional)"
+                    width="100%"
+                    isMulti
+                    isWithSearch
+                    isWithSelectAll                    disabled={l3Options.length === 0}
+                    value={scopeL3}
+                    options={l3Options.map((o) => ({ value: o, label: o }))}
+                    onChange={setScopeL3}
+                  />
+                </div>
+                <div className="acs-cfg-field">
+                  <FdSelect
+                    label="Sub-Class (optional)"
+                    width="100%"
+                    isMulti
+                    isWithSearch
+                    isWithSelectAll                    disabled={l4Options.length === 0}
+                    value={scopeL4}
+                    options={l4Options.map((o) => ({ value: o, label: o }))}
+                    onChange={setScopeL4}
+                  />
+                </div>
+              </div>
+
+              {scopeString && (
+                <div className="acs-cfg-crumb">
+                  <span className="acs-scope-live-label">Scope:</span>
+                  <ScopeCrumb scope={scopeString.replaceAll(" › ", " > ")} />
+                </div>
+              )}
+            </Card>
+
             <div className="acs-scope-footer">
               <div />
               <Button variant="primary" size="large" onClick={() => advance()} disabled={!canProceed0}>
-                Next: Merchandise Scope →
+                Next: Review &amp; Launch →
               </Button>
             </div>
           </div>
         )}
 
-        {/* ── Step 1: Merchandise Scope ─────────────────────────────────────── */}
-        {subStep === 1 && (
-          <div className="acs-scope-step acs-step-enter">
-            <div className="acs-scope-step-title">
-              <Text variant="heading" tone="strong">Select Merchandise Hierarchy</Text>
-              <Text variant="caption" tone="muted">Narrow down to the exact sub-class to cluster against. Each level unlocks the next.</Text>
-            </div>
-
-            {/* Live breadcrumb */}
-            {scopeL1 && (
-              <div className="acs-scope-live-crumb">
-                <span className="acs-scope-live-label">Selected:</span>
-                <ScopeCrumb scope={[scopeL1, scopeL2, scopeL3, scopeL4].filter(Boolean).join(" > ")} />
-              </div>
-            )}
-
-            <div className="acs-scope-hierarchy-grid">
-              {[
-                { level: "L1 — Department",   options: SCOPE_HIERARCHY.l1, val: scopeL1, setter: (v) => { setScopeL1(v); setScopeL2(""); setScopeL3(""); setScopeL4(""); } },
-                { level: "L2 — Sub-Dept",     options: l2Options,           val: scopeL2, setter: (v) => { setScopeL2(v); setScopeL3(""); setScopeL4(""); }, locked: !scopeL1 },
-                { level: "L3 — Class",        options: l3Options,           val: scopeL3, setter: (v) => { setScopeL3(v); setScopeL4(""); }, locked: !scopeL2 },
-                { level: "L4 — Sub-Class",    options: l4Options,           val: scopeL4, setter: setScopeL4, locked: !scopeL3 },
-              ].map((col) => (
-                <div key={col.level} className={`acs-hier-col${col.locked ? " locked" : col.val ? " selected" : ""}`}>
-                  <div className="acs-hier-col-header">
-                    <Text variant="micro" style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: col.locked ? "var(--color-text-subtle)" : "var(--color-text)" }}>
-                      {col.level}
-                    </Text>
-                    {col.locked && <Lock size={10} color="var(--color-text-subtle)" />}
-                    {col.val && !col.locked && <CheckCircle2 size={10} color="var(--color-success)" />}
-                  </div>
-                  <div className="acs-hier-options">
-                    {col.locked ? (
-                      <div className="acs-hier-placeholder">Select previous level</div>
-                    ) : col.options.length === 0 ? (
-                      <div className="acs-hier-placeholder acs-hier-none">No sub-classes defined yet</div>
-                    ) : (
-                      col.options.map((opt) => (
-                        <div
-                          key={opt}
-                          className={`acs-hier-option${col.val === opt ? " is-active" : ""}`}
-                          onClick={() => col.setter(opt)}
-                        >
-                          {opt}
-                          {col.val === opt && <ChevronRight size={12} style={{ marginLeft: "auto", flexShrink: 0 }} />}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="acs-scope-footer">
-              <Button variant="secondary" size="large" onClick={() => back()}>← Back</Button>
-              <Button variant="primary" size="large" onClick={() => advance()} disabled={!canProceed1}>
-                Next: Store Network →
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 2: Store Scope ───────────────────────────────────────────── */}
-        {subStep === 2 && (
-          <div className="acs-scope-step acs-step-enter">
-            <div className="acs-scope-step-title">
-              <Text variant="heading" tone="strong">Which stores should be clustered?</Text>
-              <Text variant="caption" tone="muted">Define the store universe for this run. Defaults to full network.</Text>
-            </div>
-            <div className="acs-store-scope-cards">
-              {STORE_SCOPE_OPTIONS.map((opt) => (
-                <div
-                  key={opt.id}
-                  className={`acs-store-scope-card${storeScope === opt.id ? " is-selected" : ""}`}
-                  onClick={() => setStoreScope(opt.id)}
-                >
-                  <div className="acs-store-scope-icon">{opt.icon}</div>
-                  <div>
-                    <Text variant="body-strong" style={{ marginBottom: 4, display: "block" }}>{opt.label}</Text>
-                    <Text variant="micro" tone="muted">{opt.desc}</Text>
-                  </div>
-                  {storeScope === opt.id && <div className="acs-channel-check"><CheckCircle2 size={16} color="var(--color-primary)" /></div>}
-                </div>
-              ))}
-            </div>
-
-            {storeScope === "region" && (
-              <Card sx={{ ...softSx, marginTop: 0 }}>
-                <Text variant="caption" style={{ fontWeight: 700, marginBottom: 10, display: "block" }}>Select Regions</Text>
-                <div className="acs-region-chips">
-                  {STORE_REGIONS.map((r) => (
-                    <span
-                      key={r}
-                      className={`acs-region-chip${selRegions.includes(r) ? " is-on" : ""}`}
-                      onClick={() => toggleRegion(r)}
-                    >
-                      {selRegions.includes(r) && <CheckCircle2 size={11} />} {r}
-                    </span>
-                  ))}
-                </div>
-              </Card>
-            )}
-
-            {storeScope === "stores" && (
-              <Card sx={{ ...softSx, marginTop: 0 }}>
-                <Text variant="caption" style={{ fontWeight: 700, marginBottom: 8, display: "block" }}>
-                  Enter Store IDs <Text variant="micro" tone="muted">(comma-separated, e.g. 104, 212, 318)</Text>
-                </Text>
-                <input
-                  className="acs-store-input"
-                  placeholder="e.g. 104, 212, 318, 401…"
-                  value={storeInput}
-                  onChange={(e) => setStoreInput(e.target.value)}
-                />
-              </Card>
-            )}
-
-            <div className="acs-scope-footer">
-              <Button variant="secondary" size="large" onClick={() => back()}>← Back</Button>
-              <Button variant="primary" size="large" onClick={() => advance()} disabled={!canProceed2}>
-                Review & Launch →
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 3: Review & Launch ───────────────────────────────────────── */}
-        {subStep === 3 && !launching && (
+        {/* ── Step 2: Review & Launch ───────────────────────────────────────── */}
+        {subStep === 1 && !launching && (
           <div className="acs-scope-step acs-step-enter">
             <div className="acs-scope-step-title">
               <Text variant="heading" tone="strong">Review Configuration</Text>
-              <Text variant="caption" tone="muted">The agent will run all 5 tiers sequentially. You can finalize early at any tier.</Text>
+              <Text variant="caption" tone="muted">Confirm your setup, or jump back to any step to edit. The agent runs 4 sequential steps and you can finalize early at any step.</Text>
             </div>
 
-            <div className="acs-review-grid">
-              {summaryCells.map((cell) => (
-                <div key={cell.label} className="acs-review-cell">
-                  <div className="acs-review-icon">{cell.icon}</div>
-                  <div>
-                    <Text variant="micro" tone="muted" style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4, display: "block", fontSize: 9 }}>{cell.label}</Text>
-                    <Text variant="caption" style={{ fontWeight: 700 }}>{cell.value}</Text>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Tier pipeline preview */}
+            {/* Configuration summary — clean definition list, no boxes */}
             <Card sx={softSx}>
-              <Text variant="caption" style={{ fontWeight: 700, marginBottom: 14, display: "block" }}>Agent Tier Pipeline</Text>
-              <div className="acs-tier-pipeline">
+              <div className="acs-summary-head">
+                <Text variant="body-strong" tone="strong">Configuration Summary</Text>
+                <button className="acs-review-edit" onClick={() => goToStep(0)} title="Edit configuration">
+                  <Pencil size={12} /> Edit
+                </button>
+              </div>
+              <div className="acs-summary-list">
+                {summaryCells.map((cell) => (
+                  <div key={cell.label} className="acs-summary-row">
+                    <div className="acs-summary-icon"><cell.Icon size={16} /></div>
+                    <div className="acs-summary-label">{cell.label}</div>
+                    <div className="acs-summary-value">{cell.value}</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {/* Agent pipeline — step cards with description + KPIs */}
+            <Card sx={softSx}>
+              <div className="acs-pipeline-head">
+                <div>
+                  <Text variant="body-strong" tone="strong">Agent Pipeline</Text>
+                  <Text variant="micro" tone="muted" style={{ display: "block", marginTop: 2 }}>
+                    Four sequential lenses the agent scores stores against.
+                  </Text>
+                </div>
+                <Badge variant="subtle" size="small" color="info" label="4 Steps" />
+              </div>
+              <div className="acs-pipeline-grid">
                 {[
-                  { tier: "Tier 1A", label: "Store Structure",    color: color.primary,  icon: "📐" },
-                  { tier: "Tier 1B", label: "Market Context",     color: color.teal,     icon: "📊" },
-                  { tier: "Tier 2",  label: "Commercial Scope",   color: color.info,     icon: "💰" },
-                  { tier: "CS",      label: "Cold-Start Inject",  color: color.warning,  icon: "⭐" },
-                  { tier: "Tier 4",  label: "Product Profile",    color: color.accent,   icon: "🎨" },
+                  { n: 1, label: "Store Structure",  color: color.primary, Icon: LayoutDashboard, desc: "Groups stores by physical format and footprint.", kpis: ["Selling sq ft", "Store format", "Bay count", "Ceiling height"] },
+                  { n: 2, label: "Market Context",   color: color.teal,    Icon: BarChart3,       desc: "Aligns trade-area demographics and housing stock.", kpis: ["Median HH income", "Owner-occupied %", "Housing age", "Pop. density"] },
+                  { n: 3, label: "Commercial Scope", color: color.info,    Icon: DollarSign,      desc: "Weights commercial and contractor demand signals.", kpis: ["Sales velocity", "Pro vs DIY mix", "Contractor %", "Basket size"] },
+                  { n: 4, label: "Product Profile",  color: color.accent,  Icon: Palette,         desc: "Matches style, finish and price-tier affinity.", kpis: ["SKU productivity", "Finish affinity", "Price-tier mix", "Attach rate"] },
                 ].map((t, i, arr) => (
-                  <React.Fragment key={t.tier}>
-                    <div className="acs-tier-node">
-                      <div className="acs-tier-node-dot" style={{ background: t.color }}>
-                        <span style={{ fontSize: 12 }}>{t.icon}</span>
+                  <React.Fragment key={t.n}>
+                    <div className="acs-pipeline-card">
+                      <div className="acs-pipeline-card-head">
+                        <span className="acs-pipeline-medallion" style={{ "--acc": t.color }}>
+                          <t.Icon size={18} strokeWidth={2} />
+                        </span>
+                        <div>
+                          <Text variant="micro" tone="muted" style={{ fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", fontSize: 9, display: "block" }}>Step {t.n}</Text>
+                          <Text variant="caption" style={{ fontWeight: 800 }}>{t.label}</Text>
+                        </div>
                       </div>
-                      <Text variant="micro" style={{ fontWeight: 800, color: t.color, marginBottom: 2, display: "block" }}>{t.tier}</Text>
-                      <Text variant="micro" tone="muted" style={{ fontSize: 9, textAlign: "center" }}>{t.label}</Text>
+                      <Text variant="micro" tone="muted" className="acs-pipeline-desc">{t.desc}</Text>
+                      <div className="acs-pipeline-kpis">
+                        {t.kpis.map((k) => (
+                          <span key={k} className="acs-pipeline-kpi" style={{ "--acc": t.color }}>{k}</span>
+                        ))}
+                      </div>
                     </div>
-                    {i < arr.length - 1 && <div className="acs-tier-connector" style={{ background: `linear-gradient(90deg, ${t.color}44, ${arr[i+1].color}44)` }} />}
+                    {i < arr.length - 1 && <ChevronRight className="acs-pipeline-arrow" size={18} />}
                   </React.Fragment>
                 ))}
               </div>
@@ -1443,8 +1664,7 @@ function ScopeSelectionScreen({ onBack, onLaunch }) {
             <div className="acs-scope-footer">
               <Button variant="secondary" size="large" onClick={() => back()}>← Back</Button>
               <Button variant="primary" size="large" onClick={handleLaunch} disabled={!canLaunch}>
-                <Zap size={16} style={{ marginRight: 6 }} />
-                ⚡ Launch Clustering Agent
+                Proceed to Step 1: Store Structure →
               </Button>
             </div>
           </div>
@@ -1461,7 +1681,7 @@ function ScopeSelectionScreen({ onBack, onLaunch }) {
               </div>
               <Text variant="title" style={{ color: "#fff", marginTop: 24, display: "block" }}>Initializing Agent</Text>
               <Text variant="caption" style={{ color: "#93C5FD", marginTop: 8, display: "block", lineHeight: 1.6 }}>
-                Spinning up Tier 1A · Store Structure analysis&nbsp;…
+                Spinning up Step 1 · Store Structure analysis&nbsp;…
               </Text>
               <div className="acs-launch-bars">
                 {["Store Structure", "Market Context", "Commercial Scope", "Cold-Start", "Style Profile"].map((t, i) => (
@@ -1532,6 +1752,10 @@ function TierRunWrapper({ tierKey, tierLabel, runCta, children, autoRun = false 
   if (runState === "running") {
     return (
       <div className="acs-tier-running">
+        <div className="acs-tier-running-label">
+          <span className="acs-running-spinner" />
+          <Text variant="body-strong" tone="strong">Running…</Text>
+        </div>
         {/* Skeleton shimmer placeholders */}
         <div className="acs-skeleton-grid">
           <div className="acs-skeleton-card"><div className="acs-skeleton-shimmer" style={{ height: 140 }} /></div>
@@ -1623,102 +1847,975 @@ function SignalCell({ value }) {
   );
 }
 
+/* ── Authoritative USA map geometry (shared by the Cluster Explorer map) ─────── */
+const CLX_MAP_W = 720;
+const CLX_MAP_H = 440;
+const CLX_NON_CONTIGUOUS = new Set([
+  "Alaska", "Hawaii", "Puerto Rico", "United States Virgin Islands",
+  "Guam", "Commonwealth of the Northern Mariana Islands", "American Samoa",
+]);
+const CLX_STATE_ABBR = {
+  Alabama: "AL", Arizona: "AZ", Arkansas: "AR", California: "CA", Colorado: "CO",
+  Connecticut: "CT", Delaware: "DE", "District of Columbia": "DC", Florida: "FL",
+  Georgia: "GA", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA",
+  Kansas: "KS", Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD",
+  Massachusetts: "MA", Michigan: "MI", Minnesota: "MN", Mississippi: "MS",
+  Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV",
+  "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+  "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK",
+  Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC",
+  "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT",
+  Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI", Wyoming: "WY",
+};
+const CLX_STATE_FEATURES = feature(usStatesTopology, usStatesTopology.objects.states).features
+  .filter((f) => !CLX_NON_CONTIGUOUS.has(f.properties?.name));
+const CLX_STATES_FC = { type: "FeatureCollection", features: CLX_STATE_FEATURES };
+const CLX_PROJ = geoAlbers().fitExtent([[14, 14], [CLX_MAP_W - 14, CLX_MAP_H - 14]], CLX_STATES_FC);
+const CLX_PATH = geoPath(CLX_PROJ);
+const CLX_STATE_PATHS = CLX_STATE_FEATURES.map((f) => ({ name: f.properties?.name, d: CLX_PATH(f) }));
+const CLX_STATE_CENTROID = {};
+CLX_STATE_FEATURES.forEach((f) => {
+  const ab = CLX_STATE_ABBR[f.properties?.name];
+  if (ab) CLX_STATE_CENTROID[ab] = CLX_PATH.centroid(f);
+});
+// New store anchor — Billings, MT
+const CLX_NEW_STORE = { name: "Billings, MT", pos: CLX_PROJ([-108.5007, 45.7833]) };
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * INTERACTIVE CLUSTER EXPLORER
+ * A reusable results experience shared by all four tiers. Driven by
+ * CLUSTER_EXPLORER_CONFIG[tierKey] + a synthesized per-store roster so cluster
+ * KPIs, counts and dispersion recompute in real time on store reassignment.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+function clxFmt(v, format) {
+  if (v == null || v === "") return "—";
+  switch (format) {
+    case "k":      return `${(v / 1000).toFixed(1)}k`;
+    case "weeks":  return `${Math.round(v)}w`;
+    case "usd":    return "$" + Math.round(v).toLocaleString();
+    case "usd0":   return "$" + Math.round(v).toLocaleString();
+    case "usd2":   return "$" + Number(v).toFixed(2);
+    case "pct":    return `${Math.round(v)}%`;
+    case "int":    return Math.round(v).toLocaleString();
+    case "float2": return Number(v).toFixed(2);
+    case "num1":   return Number(v).toFixed(1);
+    case "year":   return String(Math.round(v));
+    case "days":   return `${Math.round(v).toLocaleString()} d`;
+    case "risk":   return `${Math.round(v)}/100`;
+    case "text":   return String(v);
+    default:       return String(v);
+  }
+}
+
+function clxQuantiles(sorted) {
+  if (!sorted.length) return null;
+  const q = (p) => {
+    const idx = (sorted.length - 1) * p;
+    const lo = Math.floor(idx), hi = Math.ceil(idx);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+  };
+  return [sorted[0], q(0.25), q(0.5), q(0.75), sorted[sorted.length - 1]];
+}
+
+/**
+ * Membership + real-time aggregate model for one tier, resolved against the
+ * metrics the user has actually selected (`selectedKeys`). Every selected metric
+ * yields a table column + a store-level value; numeric metrics also produce
+ * boxplot dispersion, categorical metrics produce per-cluster distribution shares.
+ */
+function useClusterModel(tierKey, selectedKeys) {
+  const cfg = CLUSTER_EXPLORER_CONFIG[tierKey];
+  const [stores, setStores] = useState(() => buildClusterRosters(tierKey));
+
+  useEffect(() => { setStores(buildClusterRosters(tierKey)); }, [tierKey]);
+
+  const reassign = useCallback((storeId, toClusterId) => {
+    setStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, clusterId: toClusterId } : s)));
+  }, []);
+
+  const reassignMany = useCallback((moves) => {
+    // moves: { [storeId]: toClusterId }
+    setStores((prev) => prev.map((s) => (moves[s.id] ? { ...s, clusterId: moves[s.id] } : s)));
+  }, []);
+
+  // Resolve selected metric keys → descriptors (skip any without a registry entry).
+  const metrics = useMemo(() => {
+    const keys = Array.isArray(selectedKeys) ? selectedKeys : [];
+    return keys
+      .map((key) => { const m = getClxMetric(tierKey, key); return m ? { key, ...m } : null; })
+      .filter(Boolean);
+  }, [tierKey, selectedKeys]);
+
+  const numericMetrics = useMemo(() => metrics.filter((m) => m.kind === "numeric"), [metrics]);
+  const categoricalMetrics = useMemo(() => metrics.filter((m) => m.kind === "categorical"), [metrics]);
+
+  const clusters = useMemo(() => {
+    return cfg.clusters.map((cl) => {
+      const members = stores.filter((s) => s.clusterId === cl.id);
+      const kpis = {};
+      metrics.forEach((m) => {
+        if (m.kind === "numeric") {
+          const vals = members.map((x) => x[m.key]).filter((x) => typeof x === "number");
+          kpis[m.key] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+        } else {
+          const counts = {};
+          members.forEach((x) => { const v = x[m.key]; if (v != null) counts[v] = (counts[v] || 0) + 1; });
+          let best = null, bestN = -1;
+          Object.entries(counts).forEach(([k, n]) => { if (n > bestN) { best = k; bestN = n; } });
+          kpis[m.key] = best;
+        }
+      });
+      return { ...cl, count: members.length, members, kpis };
+    });
+  }, [stores, cfg, metrics]);
+
+  // Numeric → boxplot quantiles per cluster.
+  const dispersion = useMemo(() => {
+    const out = {};
+    numericMetrics.forEach((m) => {
+      out[m.key] = clusters.map((cl) => {
+        const vals = cl.members.map((x) => x[m.key]).filter((x) => typeof x === "number").sort((a, b) => a - b);
+        return { id: cl.id, label: cl.label, color: cl.color, box: clxQuantiles(vals) };
+      });
+    });
+    return out;
+  }, [clusters, numericMetrics]);
+
+  // Categorical → per-cluster category share (%) so stacked bars recompute live.
+  const distribution = useMemo(() => {
+    const out = {};
+    categoricalMetrics.forEach((m) => {
+      out[m.key] = clusters.map((cl) => {
+        const counts = {};
+        cl.members.forEach((x) => { const v = x[m.key]; if (v != null) counts[v] = (counts[v] || 0) + 1; });
+        const total = cl.members.length || 1;
+        const shares = {};
+        m.categories.forEach((c) => { shares[c] = ((counts[c] || 0) / total) * 100; });
+        return { id: cl.id, label: cl.label, color: cl.color, shares };
+      });
+    });
+    return out;
+  }, [clusters, categoricalMetrics]);
+
+  return { cfg, tierKey, stores, clusters, metrics, numericMetrics, categoricalMetrics, dispersion, distribution, reassign, reassignMany };
+}
+
+/** Highcharts horizontal boxplot with per-cluster colors + selection emphasis. */
+function DispersionBox({ rows, format, selectedClusterId, onSelect }) {
+  const selRef = useRef(selectedClusterId);
+  selRef.current = selectedClusterId;
+  const onSelRef = useRef(onSelect);
+  onSelRef.current = onSelect;
+
+  const options = useMemo(() => {
+    const hasSel = selectedClusterId != null;
+    const data = rows.map((r) => {
+      const dim = hasSel && r.id !== selectedClusterId;
+      const box = r.box || [null, null, null, null, null];
+      return {
+        clusterId: r.id,
+        clusterLabel: r.label || r.id,
+        dotColor: r.color,
+        low: box[0], q1: box[1], median: box[2], q3: box[3], high: box[4],
+        color: dim ? `${r.color}55` : r.color,
+        fillColor: dim ? `${r.color}12` : `${r.color}2E`,
+        medianColor: dim ? `${r.color}77` : r.color,
+        stemColor: dim ? `${r.color}55` : r.color,
+        whiskerColor: dim ? `${r.color}55` : r.color,
+      };
+    });
+    return {
+      chart: { type: "boxplot", inverted: true, backgroundColor: "transparent", height: rows.length * 46 + 54, spacing: [8, 8, 8, 8] },
+      title: { text: null },
+      credits: { enabled: false },
+      legend: { enabled: false },
+      xAxis: {
+        categories: rows.map((r) => r.id),
+        lineColor: "#E2E8F0",
+        labels: { style: { fontWeight: "700", color: "#334155", fontSize: "11px" } },
+        tickLength: 0,
+      },
+      yAxis: {
+        title: { text: null },
+        gridLineColor: "#EEF2F7",
+        labels: { formatter() { return clxFmt(this.value, format); }, style: { color: "#94A3B8", fontSize: "10px" } },
+      },
+      tooltip: {
+        useHTML: true,
+        headerFormat: "",
+        backgroundColor: "rgba(255,255,255,0.98)",
+        borderColor: "#E2E8F0",
+        borderRadius: 14,
+        borderWidth: 1,
+        shadow: false,
+        padding: 0,
+        pointFormatter() {
+          const row = (label, val, opts = {}) => `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:18px;padding:3px 0;${opts.border ? "border-top:1px solid #F1F5F9;margin-top:2px;padding-top:6px;" : ""}">
+              <span style="font-size:10.5px;color:#94A3B8;font-weight:600;letter-spacing:.02em;">${label}</span>
+              <span style="font-size:12px;color:${opts.strong ? "#0F172A" : "#334155"};font-weight:${opts.strong ? 800 : 700};font-variant-numeric:tabular-nums;">${val}</span>
+            </div>`;
+          return `
+            <div style="min-width:184px;padding:11px 13px 10px;font-family:inherit;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <span style="width:9px;height:9px;border-radius:3px;background:${this.dotColor};box-shadow:0 0 0 3px ${this.dotColor}22;flex:none;"></span>
+                <span style="font-weight:800;color:#0F172A;font-size:12.5px;">${this.clusterLabel}</span>
+                <span style="margin-left:auto;font-size:9.5px;font-weight:700;color:#94A3B8;background:#F1F5F9;border-radius:5px;padding:2px 6px;">${this.clusterId}</span>
+              </div>
+              ${row("Max", clxFmt(this.high, format))}
+              ${row("Q3", clxFmt(this.q3, format))}
+              ${row("Median", clxFmt(this.median, format), { strong: true })}
+              ${row("Q1", clxFmt(this.q1, format))}
+              ${row("Min", clxFmt(this.low, format), { border: true })}
+            </div>`;
+        },
+      },
+      plotOptions: {
+        boxplot: { lineWidth: 1.5, whiskerLength: "55%", whiskerWidth: 1.5, medianWidth: 3 },
+        series: {
+          cursor: "pointer",
+          animation: { duration: 320 },
+          point: { events: { click() { const id = this.clusterId ?? (this.options && this.options.clusterId); if (id != null && onSelRef.current) onSelRef.current(id); } } },
+        },
+      },
+      series: [{ name: "Distribution", data }],
+    };
+  }, [rows, format, selectedClusterId]);
+
+  return <HighchartsReact highcharts={Highcharts} options={options} />;
+}
+
+// Category palette for the stacked distribution bars.
+const CLX_CAT_PALETTE = ["#2563EB", "#0EA5E9", "#14B8A6", "#F59E0B", "#8B5CF6", "#EC4899", "#64748B"];
+
+/** Highcharts stacked horizontal bar: per-cluster category share; selection emphasis + click-to-select. */
+function CategoryDistribution({ rows, categories, selectedClusterId, onSelect }) {
+  const onSelRef = useRef(onSelect);
+  onSelRef.current = onSelect;
+
+  const options = useMemo(() => {
+    const hasSel = selectedClusterId != null;
+    const catColor = (i) => CLX_CAT_PALETTE[i % CLX_CAT_PALETTE.length];
+    const series = categories.map((cat, i) => ({
+      name: cat,
+      data: rows.map((r) => {
+        const dim = hasSel && r.id !== selectedClusterId;
+        const base = catColor(i);
+        return { y: r.shares[cat] || 0, clusterId: r.id, color: dim ? `${base}33` : base };
+      }),
+    }));
+    return {
+      chart: { type: "bar", backgroundColor: "transparent", height: rows.length * 46 + 64, spacing: [8, 8, 8, 8] },
+      title: { text: null },
+      credits: { enabled: false },
+      legend: { enabled: true, itemStyle: { fontSize: "10px", fontWeight: "600", color: "#475569" }, symbolRadius: 3, itemDistance: 12 },
+      xAxis: {
+        categories: rows.map((r) => r.id),
+        lineColor: "#E2E8F0",
+        labels: { style: { fontWeight: "700", color: "#334155", fontSize: "11px" } },
+        tickLength: 0,
+      },
+      yAxis: {
+        min: 0, max: 100, reversedStacks: false,
+        title: { text: null },
+        gridLineColor: "#EEF2F7",
+        labels: { formatter() { return `${this.value}%`; }, style: { color: "#94A3B8", fontSize: "10px" } },
+      },
+      tooltip: {
+        useHTML: true, headerFormat: "",
+        backgroundColor: "rgba(255,255,255,0.98)",
+        borderColor: "#E2E8F0", borderRadius: 12, borderWidth: 1, shadow: false, padding: 0,
+        pointFormatter() {
+          const base = CLX_CAT_PALETTE[this.series.index % CLX_CAT_PALETTE.length];
+          return `
+            <div style="min-width:150px;padding:9px 12px;font-family:inherit;">
+              <div style="font-size:9.5px;font-weight:700;color:#94A3B8;letter-spacing:.04em;text-transform:uppercase;margin-bottom:5px;">Cluster ${this.clusterId}</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+                <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:#334155;font-weight:600;">
+                  <span style="width:9px;height:9px;border-radius:3px;background:${base};flex:none;"></span>${this.series.name}
+                </span>
+                <span style="font-size:13px;font-weight:800;color:#0F172A;font-variant-numeric:tabular-nums;">${Math.round(this.y)}%</span>
+              </div>
+            </div>`;
+        },
+      },
+      plotOptions: {
+        series: {
+          stacking: "percent",
+          borderWidth: 0,
+          animation: { duration: 320 },
+          cursor: "pointer",
+          point: { events: { click() { const id = this.clusterId; if (id != null && onSelRef.current) onSelRef.current(id); } } },
+        },
+      },
+      series,
+    };
+  }, [rows, categories, selectedClusterId]);
+
+  return <HighchartsReact highcharts={Highcharts} options={options} />;
+}
+
+function PremiumDispersion({ model, selectedClusterId, onSelect }) {
+  const { metrics, dispersion, distribution } = model;
+  if (!metrics.length) {
+    return (
+      <Card sx={{ ...panelSx }}>
+        <div className="acs-clx-empty">
+          <BarChart3 size={22} />
+          <Text variant="body-strong" tone="strong">No clustering metrics selected</Text>
+          <Text variant="micro" tone="muted">Add metrics in the configuration to see their distribution across clusters.</Text>
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <div className="acs-clx-disp-grid">
+      {metrics.map((m) => (
+        <Card key={m.key} sx={{ ...panelSx }}>
+          <div className="acs-clx-disp-head">
+            <Text variant="body-strong" tone="strong">{m.label} {m.kind === "categorical" ? "Mix" : "Distribution"}</Text>
+            <Badge variant="subtle" size="small" color="neutral" label={m.kind === "categorical" ? "Share by cluster" : "Click a box to inspect"} />
+          </div>
+          {m.kind === "categorical"
+            ? <CategoryDistribution rows={distribution[m.key]} categories={m.categories} selectedClusterId={selectedClusterId} onSelect={onSelect} />
+            : <DispersionBox rows={dispersion[m.key]} format={m.format} selectedClusterId={selectedClusterId} onSelect={onSelect} />}
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// Diverging blue→white→red colormap for the relative-signal heatmap (RdBu-style).
+function clxHeatColor(z) {
+  const t = Math.max(0, Math.min(1, (z + 1.6) / 3.2));
+  const stops = [
+    [0.0, [33, 102, 172]],   // blue (below average)
+    [0.5, [247, 247, 247]],  // white (average)
+    [1.0, [178, 24, 43]],    // red (above average)
+  ];
+  let a = stops[0], b = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (t >= stops[i][0] && t <= stops[i + 1][0]) { a = stops[i]; b = stops[i + 1]; break; }
+  }
+  const lt = (t - a[0]) / ((b[0] - a[0]) || 1);
+  const rgb = a[1].map((c, i) => Math.round(c + (b[1][i] - c) * lt));
+  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+}
+function clxHeatText(z) {
+  // white text on the deeper (saturated) cells, dark text near the neutral middle
+  return Math.abs(z) > 0.85 ? "#F8FAFC" : "#334155";
+}
+
+/**
+ * ClusterHeatmap — relative-signal matrix: clusters (rows) × selected numeric
+ * metrics (columns), colored by each cluster's z-score vs. the cross-cluster mean.
+ * Only meaningful with ≥2 numeric metrics and ≥2 clusters (categorical-only steps skip it).
+ */
+function ClusterHeatmap({ model, selectedClusterId, onSelect }) {
+  const { clusters, numericMetrics } = model;
+
+  const grid = useMemo(() => {
+    return numericMetrics.map((m) => {
+      const means = clusters.map((cl) => (typeof cl.kpis[m.key] === "number" ? cl.kpis[m.key] : null));
+      const valid = means.filter((v) => v != null);
+      const avg = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
+      const std = valid.length ? (Math.sqrt(valid.reduce((a, b) => a + (b - avg) ** 2, 0) / valid.length) || 1) : 1;
+      const cells = clusters.map((cl, i) => {
+        const v = means[i];
+        const z = v == null ? 0 : (v - avg) / std;
+        return { clusterId: cl.id, value: v, z: Math.max(-1.6, Math.min(1.6, z)) };
+      });
+      return { key: m.key, label: m.label, format: m.format, cells };
+    });
+  }, [clusters, numericMetrics]);
+
+  if (numericMetrics.length < 2 || clusters.length < 2) return null;
+  const hasSel = selectedClusterId != null;
+
+  return (
+    <Card sx={{ ...panelSx, padding: 0 }}>
+      <div className="acs-section-header">
+        <div>
+          <Text variant="body-strong" tone="strong">Relative Signal Heatmap</Text>
+          <Text variant="micro" tone="muted" style={{ marginTop: 2, display: "block" }}>
+            How each cluster over- / under-indexes on the selected metrics (z-score vs. network mean)
+          </Text>
+        </div>
+        <Badge variant="subtle" size="small" color="neutral" label="Click a row to inspect" />
+      </div>
+
+      <div className="acs-clx-heatmap-wrap">
+        <div
+          className="acs-clx-heatmap"
+          style={{ gridTemplateColumns: `minmax(140px, 190px) repeat(${numericMetrics.length}, minmax(72px, 1fr))` }}
+        >
+          {/* Header row */}
+          <div className="acs-clx-heat-corner">Cluster</div>
+          {grid.map((col) => (
+            <div key={col.key} className="acs-clx-heat-colhead" title={col.label}>{col.label}</div>
+          ))}
+
+          {/* Data rows */}
+          {clusters.map((cl, ri) => {
+            const dim = hasSel && cl.id !== selectedClusterId;
+            return (
+              <React.Fragment key={cl.id}>
+                <div
+                  className={`acs-clx-heat-rowhead${selectedClusterId === cl.id ? " is-selected" : ""}${dim ? " is-dim" : ""}`}
+                  onClick={() => onSelect(cl.id)}
+                >
+                  <span className="acs-family-badge sm" style={{ background: cl.color }}>{cl.id}</span>
+                  <span className="acs-clx-heat-rowlabel">{cl.label}</span>
+                </div>
+                {grid.map((col) => {
+                  const cell = col.cells[ri];
+                  const sign = cell.z > 0 ? "+" : "";
+                  return (
+                    <div
+                      key={col.key}
+                      className={`acs-clx-heat-cell${dim ? " is-dim" : ""}`}
+                      style={{ background: clxHeatColor(cell.z), color: clxHeatText(cell.z) }}
+                      onClick={() => onSelect(cl.id)}
+                      title={`${cl.label} · ${col.label}: ${clxFmt(cell.value, col.format)}  (${sign}${cell.z.toFixed(2)}σ)`}
+                    >
+                      {sign}{cell.z.toFixed(1)}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
+        </div>
+
+        {/* Legend */}
+        <div className="acs-clx-heat-legend">
+          <span className="acs-clx-heat-legend-lbl">Below avg</span>
+          <span className="acs-clx-heat-legend-bar" />
+          <span className="acs-clx-heat-legend-lbl">Above avg</span>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/** Deterministic [0,1) jitter from a store id + salt (keeps dots stable per render). */
+function clxJit(str, salt) {
+  let h = (2166136261 ^ salt) >>> 0;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 100000) / 100000;
+}
+
+/** USA map: every roster store as a cluster-colored dot + the new store; selected cluster is emphasized. */
+function ClusterUSMap({ model, selectedClusterId, onSelect }) {
+  const { clusters, stores } = model;
+  const [expanded, setExpanded] = useState(false);
+  const colorById = useMemo(() => Object.fromEntries(clusters.map((c) => [c.id, c.color])), [clusters]);
+
+  const dots = useMemo(() => {
+    const list = stores.map((s) => {
+      const base = CLX_STATE_CENTROID[s.state];
+      if (!base) return null;
+      return {
+        id: s.id,
+        name: s.name,
+        clusterId: s.clusterId,
+        color: colorById[s.clusterId] || "#94a3b8",
+        x: base[0] + (clxJit(s.id, 7) - 0.5) * 48,
+        y: base[1] + (clxJit(s.id, 131) - 0.5) * 40,
+      };
+    }).filter(Boolean);
+    // Render selected-cluster dots last so they sit on top.
+    if (selectedClusterId != null) {
+      list.sort((a, b) => (a.clusterId === selectedClusterId ? 1 : 0) - (b.clusterId === selectedClusterId ? 1 : 0));
+    }
+    return list;
+  }, [stores, colorById, selectedClusterId]);
+
+  const hasSel = selectedClusterId != null;
+  const selCluster = clusters.find((c) => c.id === selectedClusterId);
+  const newPos = CLX_NEW_STORE.pos;
+
+  // Close on Escape while expanded.
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setExpanded(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+
+  const subtitle = `${stores.length.toLocaleString()} stores${hasSel ? ` · highlighting ${selCluster?.count || 0} in ${selCluster?.label}` : " · select a cluster to highlight its stores"}`;
+
+  const legend = (
+    <div className="acs-clx-map-legend">
+      {clusters.map((c) => (
+        <button
+          key={c.id}
+          className={`acs-clx-map-legend-item${selectedClusterId === c.id ? " is-active" : ""}`}
+          onClick={() => onSelect(selectedClusterId === c.id ? null : c.id)}
+        >
+          <span className="acs-clx-map-legend-dot" style={{ background: c.color }} />
+          {c.id} · {c.count}
+        </button>
+      ))}
+      <span className="acs-clx-map-legend-item is-new"><span className="acs-clx-map-legend-dot" style={{ background: "#F59E0B" }} /> {CLX_NEW_STORE.name} · New</span>
+    </div>
+  );
+
+  const svg = (
+    <svg viewBox={`0 0 ${CLX_MAP_W} ${CLX_MAP_H}`} className="acs-clx-map-svg" role="img" aria-label="US store network by cluster">
+      <g>
+        {CLX_STATE_PATHS.map((s) => (
+          <path key={s.name} d={s.d} fill="#F1F5F9" stroke="#CBD5E1" strokeWidth={0.6} />
+        ))}
+      </g>
+      <g>
+        {dots.map((d) => {
+          const inSel = !hasSel || d.clusterId === selectedClusterId;
+          return (
+            <circle
+              key={d.id}
+              cx={d.x}
+              cy={d.y}
+              r={hasSel && d.clusterId === selectedClusterId ? 4.4 : 3}
+              fill={d.color}
+              fillOpacity={inSel ? 0.92 : 0.13}
+              stroke={hasSel && d.clusterId === selectedClusterId ? "#fff" : "none"}
+              strokeWidth={hasSel && d.clusterId === selectedClusterId ? 1.2 : 0}
+              style={{ cursor: "pointer", transition: "r .15s, fill-opacity .15s" }}
+              onClick={() => onSelect(d.clusterId)}
+            >
+              <title>{d.name}</title>
+            </circle>
+          );
+        })}
+      </g>
+      {newPos && (
+        <g transform={`translate(${newPos[0]}, ${newPos[1]})`}>
+          <circle r={11} fill="#F59E0B" fillOpacity={0.18}>
+            <animate attributeName="r" values="8;15;8" dur="2.2s" repeatCount="indefinite" />
+            <animate attributeName="fill-opacity" values="0.28;0.05;0.28" dur="2.2s" repeatCount="indefinite" />
+          </circle>
+          <circle r={5} fill="#F59E0B" stroke="#fff" strokeWidth={1.6} />
+          <text x={9} y={4} fontSize={11} fontWeight={800} fill="#B45309">{CLX_NEW_STORE.name}</text>
+        </g>
+      )}
+    </svg>
+  );
+
+  return (
+    <>
+      <Card sx={{ ...panelSx, padding: 0 }}>
+        <div className="acs-section-header">
+          <div>
+            <Text variant="body-strong" tone="strong">Store Network — Continental USA</Text>
+            <Text variant="micro" tone="muted" style={{ marginTop: 2, display: "block" }}>{subtitle}</Text>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {hasSel && <Button variant="secondary" size="small" onClick={() => onSelect(null)}>Clear highlight</Button>}
+            <Button variant="secondary" size="small" onClick={() => setExpanded(true)}>
+              <Maximize2 size={14} style={{ marginRight: 5 }} /> Expand
+            </Button>
+          </div>
+        </div>
+        {legend}
+        <div className="acs-clx-map-body">{svg}</div>
+      </Card>
+
+      {expanded && createPortal(
+        <div className="acs-clx-map-modal-scrim" onClick={() => setExpanded(false)}>
+          <div className="acs-clx-map-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Expanded store map">
+            <div className="acs-clx-map-modal-head">
+              <div>
+                <Text variant="body-strong" tone="strong">Store Network — Continental USA</Text>
+                <Text variant="micro" tone="muted" style={{ marginTop: 2, display: "block" }}>{subtitle}</Text>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {hasSel && <Button variant="secondary" size="small" onClick={() => onSelect(null)}>Clear highlight</Button>}
+                <button className="acs-clx-panel-close" onClick={() => setExpanded(false)} aria-label="Close"><X size={16} /></button>
+              </div>
+            </div>
+            {legend}
+            <div className="acs-clx-map-modal-body">{svg}</div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+/** Clusters as rows, selected KPIs as columns; selectable + cross-highlighting. */
+function ClusterSummaryTable({ model, selectedClusterId, onSelect }) {
+  const { cfg, clusters, metrics } = model;
+  const totalStores = clusters.reduce((a, c) => a + c.count, 0);
+  const fmtCell = (m, val) => (m.kind === "categorical" ? (val ?? "—") : clxFmt(val, m.format));
+  return (
+    <Card sx={{ ...panelSx, padding: 0 }}>
+      <div className="acs-section-header">
+        <div>
+          <Text variant="body-strong" tone="strong">Cluster Summary</Text>
+          <Text variant="micro" tone="muted" style={{ marginTop: 2, display: "block" }}>
+            {clusters.length} clusters · {totalStores.toLocaleString()} stores · select a cluster to inspect &amp; reassign
+          </Text>
+        </div>
+        <Badge variant="subtle" size="small" color="neutral" label={`${clusters.length} ${cfg.countLabel}`} />
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table className="acs-table acs-clx-table">
+          <thead>
+            <tr>
+              <th>Cluster</th>
+              <th>Stores</th>
+              {metrics.map((m) => <th key={m.key}>{m.label}</th>)}
+              <th aria-label="inspect" />
+            </tr>
+          </thead>
+          <tbody>
+            {clusters.map((cl) => (
+              <tr
+                key={cl.id}
+                className={`acs-clx-row${selectedClusterId === cl.id ? " is-selected" : ""}`}
+                onClick={() => onSelect(cl.id)}
+              >
+                <td>
+                  <span className="acs-clx-cluster-cell">
+                    <span className="acs-family-badge" style={{ background: cl.color }}>{cl.id}</span>
+                    <span className="acs-clx-cluster-meta">
+                      <Text variant="caption" style={{ fontWeight: 700 }}>{cl.label}</Text>
+                      {cl.blurb && (
+                        <span className="acs-clx-cluster-blurb">
+                          <Sparkles size={10} /> {cl.blurb}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </td>
+                <td><Text variant="micro" mono style={{ fontWeight: 800 }}>{cl.count}</Text></td>
+                {metrics.map((m) => (
+                  <td key={m.key}><Text variant="micro" mono>{fmtCell(m, cl.kpis[m.key])}</Text></td>
+                ))}
+                <td>
+                  <span className="acs-clx-row-inspect"><Users size={13} /> View stores <ChevronRight size={13} /></span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+/** Right slide-over: cluster KPIs, Cluster Insights, per-store attributes + staged reassignment. */
+function ClusterStorePanel({ open, model, clusterId, onClose, onReassignMany }) {
+  const { clusters, metrics } = model;
+  const cluster = clusters.find((c) => c.id === clusterId);
+  const fmtVal = (m, v) => (m.kind === "categorical" ? (v ?? "—") : clxFmt(v, m.format));
+
+  const [pending, setPending] = useState({});   // { storeId: toClusterId }
+  const [applying, setApplying] = useState(false);
+
+  // Reset staged moves whenever the inspected cluster changes.
+  useEffect(() => { setPending({}); setApplying(false); }, [clusterId]);
+
+  const pendingCount = Object.keys(pending).length;
+
+  const stageMove = (storeId, toId) => {
+    setPending((prev) => {
+      const next = { ...prev };
+      if (!toId) delete next[storeId];
+      else next[storeId] = toId;
+      return next;
+    });
+  };
+
+  const applyChanges = () => {
+    if (!pendingCount) return;
+    setApplying(true);
+    const moves = pending;
+    setTimeout(() => {
+      onReassignMany(moves);
+      setPending({});
+      setApplying(false);
+    }, 950);
+  };
+
+  return (
+    <>
+      <div className={`acs-clx-panel-scrim${open ? " open" : ""}`} onClick={onClose} />
+      <aside className={`acs-clx-panel${open ? " open" : ""}`} role="dialog" aria-label="Cluster detail">
+        {cluster && (
+          <>
+            <div className="acs-clx-panel-head" style={{ borderTopColor: cluster.color }}>
+              <div className="acs-clx-panel-title">
+                <span className="acs-family-badge lg" style={{ background: cluster.color }}>{cluster.id}</span>
+                <div style={{ minWidth: 0 }}>
+                  <Text variant="body-strong" tone="strong" style={{ display: "block" }}>{cluster.label}</Text>
+                  {cluster.blurb && (
+                    <span className="acs-clx-cluster-blurb" style={{ marginTop: 3 }}>
+                      <Sparkles size={10} /> {cluster.blurb}
+                    </span>
+                  )}
+                  <Text variant="micro" tone="muted" style={{ display: "block", marginTop: 3 }}>{cluster.count} store{cluster.count === 1 ? "" : "s"} in this cluster</Text>
+                </div>
+              </div>
+              <button className="acs-clx-panel-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
+            </div>
+
+            <div className="acs-clx-panel-body">
+              {/* KPI chips */}
+              <div className="acs-clx-panel-kpis">
+                {metrics.length === 0 && (
+                  <Text variant="micro" tone="muted">No metrics selected for this step.</Text>
+                )}
+                {metrics.map((m) => (
+                  <div key={m.key} className="acs-clx-panel-kpi">
+                    <span className="acs-clx-panel-kpi-label">{m.label}{m.kind === "categorical" ? " (modal)" : ""}</span>
+                    <span className="acs-clx-panel-kpi-val">{fmtVal(m, cluster.kpis[m.key])}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Cluster Insights */}
+              <div className="acs-clx-insight" style={{ borderLeftColor: cluster.color }}>
+                <Text variant="micro" tone="subtle" style={{ fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em", fontSize: 9, display: "block", marginBottom: 4 }}>
+                  Insights for Selected Cluster
+                </Text>
+                <Text variant="micro" style={{ lineHeight: 1.6 }}>{cluster.insight || "No additional insight for this cluster."}</Text>
+              </div>
+
+              {/* Store list — every store with all clustering attributes + move control */}
+              <div className="acs-clx-store-head">
+                <Text variant="micro" tone="subtle" style={{ fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em", fontSize: 9 }}>
+                  Member Stores ({cluster.count})
+                </Text>
+                <Text variant="micro" tone="muted">Attributes used in clustering</Text>
+              </div>
+
+              <div className={`acs-clx-store-list${applying ? " is-applying" : ""}`}>
+                {applying && (
+                  <div className="acs-clx-apply-overlay">
+                    <span className="acs-running-spinner" />
+                    <Text variant="micro" style={{ fontWeight: 700 }}>Reassigning &amp; recomputing…</Text>
+                  </div>
+                )}
+                {cluster.members.length === 0 && (
+                  <div className="acs-clx-store-empty">No stores remain in this cluster.</div>
+                )}
+                {cluster.members.map((s) => {
+                  const staged = pending[s.id];
+                  return (
+                    <div key={s.id} className={`acs-clx-store-row${staged ? " is-staged" : ""}`}>
+                      <div className="acs-clx-store-top">
+                        <div className="acs-clx-store-main">
+                          <Text variant="micro" style={{ fontWeight: 700 }}>{s.name}</Text>
+                          <Text variant="micro" tone="muted">#{s.storeNo}</Text>
+                        </div>
+                        <div className="acs-clx-store-move">
+                          <ArrowLeftRight size={13} className="acs-clx-move-ico" />
+                          <FdSelect
+                            width={210}
+                            placeholder="Move to…"
+                            value={staged || ""}
+                            disabled={applying}
+                            options={clusters.filter((c) => c.id !== cluster.id).map((c) => ({ value: c.id, label: `${c.id} · ${c.label}` }))}
+                            onChange={(v) => stageMove(s.id, v)}
+                          />
+                        </div>
+                      </div>
+                      {/* Per-store clustering attribute values */}
+                      <div className="acs-clx-store-attrs">
+                        {metrics.map((m) => (
+                          <span key={m.key} className="acs-clx-store-attr">
+                            <span className="acs-clx-store-attr-k">{m.label}</span>
+                            <span className="acs-clx-store-attr-v">{fmtVal(m, s[m.key])}</span>
+                          </span>
+                        ))}
+                      </div>
+                      {staged && (
+                        <div className="acs-clx-store-staged">
+                          <ArrowLeftRight size={11} /> Staged → move to <strong>{staged}</strong>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Sticky apply bar */}
+            {pendingCount > 0 && (
+              <div className="acs-clx-panel-foot">
+                <Text variant="micro" tone="muted">{pendingCount} store{pendingCount === 1 ? "" : "s"} staged to move</Text>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Button variant="secondary" size="small" disabled={applying} onClick={() => setPending({})}>Discard</Button>
+                  <Button variant="primary" size="small" disabled={applying} onClick={applyChanges}>
+                    {applying ? "Applying…" : `Apply Changes (${pendingCount})`}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </aside>
+    </>
+  );
+}
+
+/** Orchestrator: run gating, config collapse + edit, and the interactive results. */
+function ClusterExplorer({ tierKey, tierLabel, configCard, configSummary, insightText, insightType = "info", selectedKeys }) {
+  const model = useClusterModel(tierKey, selectedKeys);
+  const [runState, setRunState] = useState("idle"); // idle | running | results
+  const [logLines, setLogLines] = useState([]);
+  const [selectedClusterId, setSelectedClusterId] = useState(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const logs = TIER_WORK_LOGS[tierKey] || [];
+
+  const startRun = useCallback(() => {
+    setRunState("running");
+    setLogLines([]);
+    setSelectedClusterId(null);
+    setPanelOpen(false);
+    logs.forEach((line) => {
+      setTimeout(() => setLogLines((prev) => [...prev, line]), Math.round(line.t * 1000));
+    });
+    const total = logs.length ? Math.round(logs[logs.length - 1].t * 1000) + 700 : 2000;
+    setTimeout(() => setRunState("results"), total);
+  }, [logs]);
+
+  // Auto-load: whenever a step screen opens, kick off the clustering run once
+  // so the user lands directly on the streaming computation → results.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStarted.current) return;
+    autoStarted.current = true;
+    startRun();
+  }, [startRun]);
+
+  const selectCluster = (id) => {
+    if (id == null) { setSelectedClusterId(null); setPanelOpen(false); return; }
+    setSelectedClusterId(id);
+    setPanelOpen(true);
+  };
+  const editConfig = () => { setRunState("idle"); setSelectedClusterId(null); setPanelOpen(false); };
+
+  return (
+    <div className="acs-clx">
+      {/* Config: full card while idle, collapsed summary bar in results */}
+      {runState !== "results" ? (
+        configCard
+      ) : (
+        <div className="acs-clx-config-bar">
+          <div className="acs-clx-config-bar-main">
+            <span className="acs-clx-config-done"><CheckCircle2 size={13} /> Clustering complete</span>
+            <div className="acs-clx-config-chips">
+              {(configSummary || []).map((c) => <span key={c} className="acs-clx-config-chip">{c}</span>)}
+            </div>
+          </div>
+          <Button variant="secondary" size="small" onClick={editConfig}>
+            <Pencil size={13} style={{ marginRight: 5 }} /> Edit configuration
+          </Button>
+        </div>
+      )}
+
+      {/* Run CTA */}
+      {runState === "idle" && (
+        <div className="acs-tier-idle-cta">
+          <Button variant="primary" size="large" onClick={startRun}>
+            <Zap size={16} style={{ marginRight: 6 }} /> Run
+          </Button>
+        </div>
+      )}
+
+      {/* Running terminal */}
+      {runState === "running" && (
+        <div className="acs-tier-running">
+          <div className="acs-tier-running-label">
+            <span className="acs-running-spinner" />
+            <Text variant="body-strong" tone="strong">Running…</Text>
+          </div>
+          <div className="acs-skeleton-grid">
+            <div className="acs-skeleton-card"><div className="acs-skeleton-shimmer" style={{ height: 140 }} /></div>
+            <div className="acs-skeleton-card"><div className="acs-skeleton-shimmer" style={{ height: 140 }} /></div>
+          </div>
+          <div className="acs-work-terminal">
+            <div className="acs-work-terminal-header">
+              <span className="acs-work-terminal-dot red" />
+              <span className="acs-work-terminal-dot yellow" />
+              <span className="acs-work-terminal-dot green" />
+              <span className="acs-work-terminal-title"><Cpu size={11} style={{ marginRight: 4 }} /> AGENT · {tierLabel} COMPUTATION ENGINE</span>
+            </div>
+            <div className="acs-work-terminal-body">
+              {logLines.map((line, i) => (
+                <div key={i} className={`acs-work-log-line acs-work-log-${line.type} acs-log-fade-in`}>
+                  <span className="acs-work-log-time">[{line.t.toFixed(1)}s]</span>
+                  <span className="acs-work-log-text">{line.text}</span>
+                </div>
+              ))}
+              <span className="acs-terminal-cursor" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Interactive results */}
+      {runState === "results" && (
+        <>
+          <div className="acs-clx-results acs-tier-results revealed">
+            <ClusterUSMap model={model} selectedClusterId={selectedClusterId} onSelect={selectCluster} />
+            <PremiumDispersion model={model} selectedClusterId={selectedClusterId} onSelect={selectCluster} />
+            <ClusterHeatmap model={model} selectedClusterId={selectedClusterId} onSelect={selectCluster} />
+            <ClusterSummaryTable model={model} selectedClusterId={selectedClusterId} onSelect={selectCluster} />
+            {insightText && <AgentInsight text={insightText} type={insightType} />}
+          </div>
+          {/* Panel kept outside the transformed .acs-tier-results so position:fixed anchors to the viewport */}
+          <ClusterStorePanel open={panelOpen} model={model} clusterId={selectedClusterId} onClose={() => setPanelOpen(false)} onReassignMany={model.reassignMany} />
+        </>
+      )}
+    </div>
+  );
+}
+
 function Step0_Tier1A({ draft, setDraft, onFinalize, onProceed }) {
   const toggleMetric = (key) => setDraft((d) => {
     const metrics = d.tier1aMetrics.includes(key) ? d.tier1aMetrics.filter((k) => k !== key) : [...d.tier1aMetrics, key];
     return { ...d, tier1aMetrics: metrics, useAgentTier1a: false };
   });
 
-  const sqftMax = 110000;
-  const ageMax  = 800;
+  const configSummary = TIER1A_METRICS.filter((m) => draft.tier1aMetrics.includes(m.key)).map((m) => m.label);
+
+  const metricCard = (
+    <Card sx={{ ...panelSx, padding: 0 }}>
+      <div className="acs-section-header">
+        <Text variant="body-strong" tone="strong">Clustering Metrics</Text>
+      </div>
+      <div className="acs-metric-grid" style={{ padding: 16 }}>
+        {TIER1A_METRICS.map((m) => (
+          <MetricToggle key={m.key} metric={m} active={draft.tier1aMetrics.includes(m.key)} onToggle={toggleMetric} />
+        ))}
+      </div>
+    </Card>
+  );
 
   return (
     <div className="acs-wiz-step">
       <div className="acs-step-intro">
-        <div className="acs-step-badge">Tier 1A</div>
+        <div className="acs-step-badge">Step 1</div>
         <Text variant="title" tone="strong">Store Structure</Text>
         <Text variant="caption" tone="muted">Group stores purely by physical footprint, store maturity, and DC supply chain routing.</Text>
       </div>
 
-      {/* Metric selection */}
-      <Card sx={{ ...panelSx, padding: 0 }}>
-        <div className="acs-section-header">
-          <Text variant="body-strong" tone="strong">Clustering Metrics</Text>
-          <Stack direction="row" gap={2}>
-            <Button variant={draft.useAgentTier1a ? "primary" : "secondary"} size="small"
-              onClick={() => setDraft((d) => ({ ...d, useAgentTier1a: true, tier1aMetrics: TIER1A_METRICS.filter((m) => m.recommended).map((m) => m.key) }))}>
-              🤖 Agent Recommended
-            </Button>
-            <Button variant={!draft.useAgentTier1a ? "primary" : "secondary"} size="small"
-              onClick={() => setDraft((d) => ({ ...d, useAgentTier1a: false }))}>
-              ⚙️ Customize
-            </Button>
-          </Stack>
-        </div>
-        <div className="acs-metric-grid" style={{ padding: 16 }}>
-          {TIER1A_METRICS.map((m) => (
-            <MetricToggle key={m.key} metric={m} active={draft.tier1aMetrics.includes(m.key)} onToggle={toggleMetric} />
-          ))}
-        </div>
-      </Card>
+      <ClusterExplorer
+        tierKey="1A"
+        tierLabel="Store Structure"
+        configCard={metricCard}
+        configSummary={configSummary}
+        selectedKeys={draft.tier1aMetrics}
+        insightText={TIER1A_MICRO_INSIGHT}
+      />
 
-      {/* ── Work Happening Wrapper ── */}
-      <TierRunWrapper tierKey="1A" tierLabel="Tier 1A: Store Structure" runCta="⚡ Run Tier 1A Calculation">
-        {/* Dispersion charts */}
-        <div className="acs-disp-charts">
-          {[
-            { title: "SqFt Dispersion",   data: TIER1A_SQFT_DISPERSION, maxVal: sqftMax, barColor: color.primary, fmt: (v) => `${(v/1000).toFixed(0)}k` },
-            { title: "Store Age (Weeks)", data: TIER1A_AGE_DISPERSION,   maxVal: ageMax,  barColor: color.teal,    fmt: (v) => `${v}w`                    },
-          ].map((chart) => (
-            <Card key={chart.title} sx={{ ...panelSx, flex: 1 }}>
-              <Text variant="body-strong" tone="strong" style={{ marginBottom: 16, display: "block" }}>{chart.title}</Text>
-              {chart.data.map((row) => (
-                <div key={row.id} className="acs-disp-row">
-                  <Text variant="micro" style={{ fontWeight: 700, width: 16, flexShrink: 0 }}>{row.id}</Text>
-                  <DispersionBar {...row} maxVal={chart.maxVal} barColor={chart.barColor} />
-                  <Text variant="micro" tone="muted" style={{ width: 36, textAlign: "right", flexShrink: 0 }}>{chart.fmt(row.median)}</Text>
-                </div>
-              ))}
-            </Card>
-          ))}
-        </div>
-
-        {/* Structure family table */}
-        <Card sx={{ ...panelSx, padding: 0 }}>
-          <div className="acs-section-header">
-            <Text variant="body-strong" tone="strong">Structure Family Overview</Text>
-            <Badge variant="subtle" size="small" color="neutral" label="6 Families" />
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <table className="acs-table">
-              <thead>
-                <tr>
-                  <th>Family</th><th>Name</th><th>Stores</th><th>Modal State</th>
-                  <th>Modal DC</th><th>Avg SqFt</th><th>Avg Age (wk)</th><th>Business Read</th>
-                </tr>
-              </thead>
-              <tbody>
-                {TIER1A_FAMILIES.map((f) => (
-                  <tr key={f.id}>
-                    <td><span className="acs-family-badge" style={{ background: LABEL_COLORS.structure[f.id] }}>{f.id}</span></td>
-                    <td><Text variant="caption" style={{ fontWeight: 600 }}>{f.label}</Text></td>
-                    <td><Text variant="micro" mono style={{ fontWeight: 700 }}>{f.stores}</Text></td>
-                    <td><Text variant="micro" tone="muted">{f.modalState}</Text></td>
-                    <td><Text variant="micro" tone="muted">{f.dc}</Text></td>
-                    <td><Text variant="micro" mono>{f.avgSqft.toLocaleString()}</Text></td>
-                    <td><Text variant="micro" mono>{f.avgAgeWeeks}</Text></td>
-                    <td><Text variant="micro" tone="muted">{f.businessRead}</Text></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        <AgentInsight text={TIER1A_MICRO_INSIGHT} type="info" />
-      </TierRunWrapper>
-
-      <WizardFooter tierLabel="Tier 1A (Supply Chain Run)" onFinalize={onFinalize} onProceed={onProceed} proceedLabel="Proceed to Tier 1B: Market Context →" />
+      <WizardFooter tierLabel="Step 1 (Store Structure)" onFinalize={onFinalize} onProceed={onProceed} proceedLabel="Proceed to Step 2: Market Context →" />
     </div>
   );
 }
@@ -1729,108 +2826,44 @@ function Step1_Tier1B({ draft, setDraft, onFinalize, onProceed }) {
     return { ...d, tier1bMetrics: metrics, useAgentTier1b: false };
   });
 
+  const configSummary = TIER1B_METRICS.filter((m) => draft.tier1bMetrics.includes(m.key)).map((m) => m.label);
+
+  const metricCard = (
+    <Card sx={{ ...panelSx, padding: 0 }}>
+      <div className="acs-section-header">
+        <div>
+          <Text variant="body-strong" tone="strong">Trade Area &amp; Metrics</Text>
+          <Text variant="micro" tone="muted" style={{ marginTop: 2, display: "block" }}>
+            Catchment Radius: <strong>30-Mile ZCTA Centroid Radius</strong>
+          </Text>
+        </div>
+      </div>
+      <div className="acs-metric-grid" style={{ padding: 16 }}>
+        {TIER1B_METRICS.map((m) => (
+          <MetricToggle key={m.key} metric={m} active={draft.tier1bMetrics.includes(m.key)} onToggle={toggleMetric} />
+        ))}
+      </div>
+    </Card>
+  );
+
   return (
     <div className="acs-wiz-step">
       <div className="acs-step-intro">
-        <div className="acs-step-badge" style={{ background: LABEL_COLORS.market.M3 }}>Tier 1B</div>
+        <div className="acs-step-badge" style={{ background: LABEL_COLORS.market.M3 }}>Step 2</div>
         <Text variant="title" tone="strong">External Market Context</Text>
         <Text variant="caption" tone="muted">Map 30-mile ZCTA catchment trade areas using Census ACS, IRS SOI, Zillow ZHVI, and FEMA NRI climate data.</Text>
       </div>
 
-      {/* Catchment radius + metrics */}
-      <Card sx={{ ...panelSx, padding: 0 }}>
-        <div className="acs-section-header">
-          <div>
-            <Text variant="body-strong" tone="strong">Trade Area &amp; Metrics</Text>
-            <Text variant="micro" tone="muted" style={{ marginTop: 2, display: "block" }}>
-              Catchment Radius: <strong>30-Mile ZCTA Centroid Radius</strong>
-            </Text>
-          </div>
-          <Stack direction="row" gap={2}>
-            <Button variant={draft.useAgentTier1b ? "primary" : "secondary"} size="small"
-              onClick={() => setDraft((d) => ({ ...d, useAgentTier1b: true, tier1bMetrics: TIER1B_METRICS.filter((m) => m.recommended).map((m) => m.key) }))}>
-              🤖 Agent Recommended
-            </Button>
-            <Button variant={!draft.useAgentTier1b ? "primary" : "secondary"} size="small"
-              onClick={() => setDraft((d) => ({ ...d, useAgentTier1b: false }))}>
-              ⚙️ Customize
-            </Button>
-          </Stack>
-        </div>
-        <div className="acs-metric-grid" style={{ padding: 16 }}>
-          {TIER1B_METRICS.map((m) => (
-            <MetricToggle key={m.key} metric={m} active={draft.tier1bMetrics.includes(m.key)} onToggle={toggleMetric} />
-          ))}
-        </div>
-      </Card>
+      <ClusterExplorer
+        tierKey="1B"
+        tierLabel="Market Context"
+        configCard={metricCard}
+        configSummary={configSummary}
+        selectedKeys={draft.tier1bMetrics}
+        insightText={TIER1B_MICRO_INSIGHT}
+      />
 
-      {/* ── Work Happening Wrapper ── */}
-      <TierRunWrapper tierKey="1B" tierLabel="Tier 1B: Market Context" runCta="⚡ Run Tier 1B Market Analysis">
-        {/* Signal heatmap */}
-        <Card sx={{ ...panelSx, padding: 0 }}>
-          <div className="acs-section-header">
-            <Text variant="body-strong" tone="strong">Relative Signal Heatmap</Text>
-            <Text variant="micro" tone="muted">+++++ = +2.5σ signal strength</Text>
-          </div>
-          <div style={{ overflowX: "auto", padding: "0 0 8px" }}>
-            <table className="acs-heatmap-table">
-              <thead>
-                <tr>
-                  <th>Family</th>
-                  {TIER1B_SIGNAL_MATRIX.headers.map((h) => <th key={h}>{h}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {TIER1B_SIGNAL_MATRIX.rows.map((row) => (
-                  <tr key={row.family} className={TIER1B_FAMILIES.find((f) => f.id === row.family)?.highlight ? "acs-heatmap-highlight" : ""}>
-                    <td><span className="acs-family-badge" style={{ background: LABEL_COLORS.market[row.family] }}>{row.family}</span></td>
-                    {row.values.map((v, i) => <td key={i}><SignalCell value={v} /></td>)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        {/* Market family table */}
-        <Card sx={{ ...panelSx, padding: 0 }}>
-          <div className="acs-section-header">
-            <Text variant="body-strong" tone="strong">Market Family Read</Text>
-            <Badge variant="subtle" size="small" color="neutral" label="4 Market Families" />
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <table className="acs-table">
-              <thead>
-                <tr>
-                  <th>Family</th><th>Merchant Name</th><th>Stores</th>
-                  <th>Median Income</th><th>Home Value</th><th>Owner Share</th><th>Older Home %</th><th>AI Business Read</th>
-                </tr>
-              </thead>
-              <tbody>
-                {TIER1B_FAMILIES.map((f) => (
-                  <tr key={f.id} className={f.highlight ? "acs-row-highlight" : ""}>
-                    <td><span className="acs-family-badge" style={{ background: LABEL_COLORS.market[f.id] }}>{f.id}</span></td>
-                    <td>
-                      <Text variant="caption" style={{ fontWeight: 600 }}>{f.merchantName}</Text>
-                      {f.highlight && <span className="acs-rec-badge" style={{ marginLeft: 6 }}>★ Contractor-Rich</span>}
-                    </td>
-                    <td><Text variant="micro" mono style={{ fontWeight: 700 }}>{f.stores}</Text></td>
-                    <td><Text variant="micro" mono>{fmtCurrency(f.income)}</Text></td>
-                    <td><Text variant="micro" mono>{fmtCurrency(f.homeValue)}</Text></td>
-                    <td><Text variant="micro" mono>{f.ownerShare}%</Text></td>
-                    <td><Text variant="micro" mono>{f.olderHomeShare}%</Text></td>
-                    <td><Text variant="micro" tone="muted" style={{ lineHeight: 1.5 }}>{f.businessRead}</Text></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        <AgentInsight text={TIER1B_MICRO_INSIGHT} type="info" />
-      </TierRunWrapper>
-
-      <WizardFooter tierLabel="Tier 1B (Macro Real Estate)" onFinalize={onFinalize} onProceed={onProceed} proceedLabel="Proceed to Step 3: Scope & Tier 2 →" />
+      <WizardFooter tierLabel="Step 2 (Market Context)" onFinalize={onFinalize} onProceed={onProceed} proceedLabel="Proceed to Step 3: Commercial Scope →" />
     </div>
   );
 }
@@ -1841,245 +2874,68 @@ function Step2_ScopeAndTier2({ draft, setDraft, onFinalize, onProceed }) {
     return { ...d, tier2Metrics: metrics, useAgentTier2: false };
   });
 
-  const l2Options = SCOPE_HIERARCHY.l2[draft.scopeL1] || [];
-  const l3Key = `${draft.scopeL1} / ${draft.scopeL2}`;
-  const l3Options = SCOPE_HIERARCHY.l3[l3Key] || [];
-  const l4Key = `${draft.scopeL1} / ${draft.scopeL2} / ${draft.scopeL3}`;
-  const l4Options = SCOPE_HIERARCHY.l4[l4Key] || [];
-
   const dosMax = 1800;
 
   return (
     <div className="acs-wiz-step">
       <div className="acs-step-intro">
-        <div className="acs-step-badge" style={{ background: color.info }}>Tier 2</div>
-        <Text variant="title" tone="strong">Merchandise Scope &amp; Commercial Performance</Text>
-        <Text variant="caption" tone="muted">Lock the target merchandise hierarchy and fetch category-scoped sales velocity, sell-through %, and Days of Supply.</Text>
+        <div className="acs-step-badge" style={{ background: color.info }}>Step 3</div>
+        <Text variant="title" tone="strong">Commercial Performance</Text>
+        <Text variant="caption" tone="muted">Against the locked merchandise scope, fetch category-scoped sales velocity, sell-through %, and Days of Supply.</Text>
       </div>
 
-      {/* Scope selectors */}
-      <Card sx={{ ...panelSx, padding: 0 }}>
-        <div className="acs-section-header">
-          <Text variant="body-strong" tone="strong">Select Merchandise Scope (Levels 1–4)</Text>
-          {draft.scopeL4 && <Badge variant="subtle" size="small" color="success" label={`🔒 ${draft.scopeL4}`} />}
-        </div>
-        <div className="acs-scope-grid" style={{ padding: "16px 20px 20px" }}>
-          {[
-            { label: "Level 1 — Department",  options: SCOPE_HIERARCHY.l1, val: draft.scopeL1, key: "scopeL1" },
-            { label: "Level 2 — Sub-Dept",    options: l2Options,           val: draft.scopeL2, key: "scopeL2" },
-            { label: "Level 3 — Class",       options: l3Options,           val: draft.scopeL3, key: "scopeL3" },
-            { label: "Level 4 — Sub-Class",   options: l4Options,           val: draft.scopeL4, key: "scopeL4" },
-          ].map((col) => (
-            <div key={col.key}>
-              <Text variant="micro" tone="subtle" style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8, display: "block" }}>{col.label}</Text>
-              <select
-                className="acs-scope-select"
-                value={col.val}
-                onChange={(e) => setDraft((d) => ({ ...d, [col.key]: e.target.value }))}
-              >
-                <option value="">Select…</option>
-                {col.options.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
-            </div>
-          ))}
-        </div>
-      </Card>
+      <ClusterExplorer
+        tierKey="2"
+        tierLabel="Commercial Performance"
+        configCard={(
+          <>
+            {/* Scope selectors */}
+            <Card sx={{ ...panelSx, padding: 0 }}>
+              <div className="acs-section-header">
+                <Text variant="body-strong" tone="strong">Target Merchandise Scope (Levels 1–4)</Text>
+                <Badge variant="subtle" size="small" color="success" label="🔒 Locked from scope setup" />
+              </div>
+              <div className="acs-scope-grid" style={{ padding: "16px 20px 20px" }}>
+                {[
+                  { label: "Level 1 — Department", val: draft.scopeL1 },
+                  { label: "Level 2 — Sub-Dept",   val: draft.scopeL2 },
+                  { label: "Level 3 — Class",      val: draft.scopeL3 },
+                  { label: "Level 4 — Sub-Class",  val: draft.scopeL4 },
+                ].map((col) => (
+                  <div key={col.label}>
+                    <Text variant="micro" tone="subtle" style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8, display: "block" }}>{col.label}</Text>
+                    <div className="acs-scope-readonly" title={col.val || "Not scoped"}>
+                      <Lock size={12} className="acs-scope-readonly-ico" />
+                      <span className="acs-scope-readonly-val">{col.val || "—"}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
 
-      {/* Tier 2 metrics */}
-      <Card sx={{ ...panelSx, padding: 0 }}>
-        <div className="acs-section-header">
-          <div>
-            <Text variant="body-strong" tone="strong">Tier 2: Category Commercial Metrics</Text>
-            <Text variant="micro" tone="muted" style={{ marginTop: 2, display: "block" }}>Scoped to: {draft.scopeL4 || "—"}</Text>
-          </div>
-          <Stack direction="row" gap={2}>
-            <Button variant={draft.useAgentTier2 ? "primary" : "secondary"} size="small"
-              onClick={() => setDraft((d) => ({ ...d, useAgentTier2: true, tier2Metrics: TIER2_METRICS.filter((m) => m.recommended).map((m) => m.key) }))}>
-              🤖 Agent Recommended
-            </Button>
-            <Button variant={!draft.useAgentTier2 ? "primary" : "secondary"} size="small"
-              onClick={() => setDraft((d) => ({ ...d, useAgentTier2: false }))}>
-              ⚙️ Customize
-            </Button>
-          </Stack>
-        </div>
-        <div className="acs-metric-grid" style={{ padding: 16 }}>
-          {TIER2_METRICS.map((m) => (
-            <MetricToggle key={m.key} metric={m} active={draft.tier2Metrics.includes(m.key)} onToggle={toggleMetric} />
-          ))}
-        </div>
-      </Card>
-
-      {/* DOS dispersion */}
-      <Card sx={panelSx}>
-        <Text variant="body-strong" tone="strong" style={{ marginBottom: 16, display: "block" }}>
-          Days of Supply Dispersion — {draft.scopeL4 || "Selected Sub-Class"}
-        </Text>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {TIER2_COMMERCIAL_CLUSTERS.map((cl) => {
-            const pct = Math.min((cl.dos / dosMax) * 100, 100);
-            const barColor = cl.risk === "critical" ? color.error : cl.risk === "moderate" ? color.warning : color.success;
-            return (
-              <div key={cl.id} className="acs-dos-row">
-                <Text variant="micro" style={{ fontWeight: 600, width: 120, flexShrink: 0 }}>{cl.label}</Text>
-                <div className="acs-dos-bar-wrap">
-                  <div className="acs-dos-bar" style={{ width: `${pct}%`, background: barColor }} />
+            {/* Tier 2 metrics */}
+            <Card sx={{ ...panelSx, padding: 0 }}>
+              <div className="acs-section-header">
+                <div>
+                  <Text variant="body-strong" tone="strong">Category Commercial Metrics</Text>
+                  <Text variant="micro" tone="muted" style={{ marginTop: 2, display: "block" }}>Scoped to: {draft.scopeL4 || "—"}</Text>
                 </div>
-                <Text variant="micro" mono style={{ width: 60, textAlign: "right", flexShrink: 0, color: barColor, fontWeight: 700 }}>
-                  {cl.dos.toLocaleString()} d
-                </Text>
-                {cl.risk === "critical" && <AlertTriangle size={12} color={color.error} style={{ flexShrink: 0 }} />}
               </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      {/* Comparison table */}
-      <Card sx={{ ...panelSx, padding: 0 }}>
-        <div className="acs-section-header">
-          <Text variant="body-strong" tone="strong">Total-Store vs Category Rank Comparison</Text>
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <table className="acs-table">
-            <thead>
-              <tr><th>Store Location</th><th>Total Store Velocity Rank</th><th>Category Rank</th><th>Variance</th><th>Action Taken</th></tr>
-            </thead>
-            <tbody>
-              {TIER2_COMPARISON_TABLE.map((row) => {
-                const isPos = row.variance.startsWith("+");
-                const isNeg = row.variance.startsWith("-");
-                return (
-                  <tr key={row.store}>
-                    <td><Text variant="caption" style={{ fontWeight: 600 }}>{row.store}</Text></td>
-                    <td><Text variant="micro" mono>#{row.totalRank}</Text></td>
-                    <td><Text variant="micro" mono style={{ fontWeight: 700 }}>#{row.categoryRank}</Text></td>
-                    <td>
-                      <Text variant="micro" mono style={{ fontWeight: 700, color: isPos ? color.success : isNeg ? color.error : color.text }}>
-                        {row.variance}
-                      </Text>
-                    </td>
-                    <td><Text variant="micro" tone="muted">{row.action}</Text></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      <AgentInsight text={TIER2_AI_ALERT} type="warning" />
-      <WizardFooter tierLabel="Tier 2 (Commercial OTB Run)" onFinalize={onFinalize} onProceed={onProceed} proceedLabel="Proceed to Step 4: Cold-Start →" />
-    </div>
-  );
-}
-
-function Step3_ColdStart({ draft, onFinalize, onProceed }) {
-  const activeColdStart = COLD_START_STORES[0]; // Billings, MT as primary example
-
-  return (
-    <div className="acs-wiz-step">
-      <div className="acs-step-intro">
-        <div className="acs-step-badge" style={{ background: color.warning }}>Cold-Start</div>
-        <Text variant="title" tone="strong">Cold-Start Store Injection</Text>
-        <Text variant="caption" tone="muted">Safely onboard brand-new locations without sales history using the Dual-Anchor Proxy Model.</Text>
-      </div>
-
-      {/* Detected cold-start stores */}
-      <Card sx={{ ...panelSx, padding: 0 }}>
-        <div className="acs-section-header">
-          <Stack direction="row" align="center" gap={2}>
-            <Star size={14} color={color.warning} />
-            <Text variant="body-strong" tone="strong">Detected Cold-Start Locations ({COLD_START_STORES.length})</Text>
-          </Stack>
-          <Badge variant="subtle" size="small" color="warning" label="Auto-Detected" />
-        </div>
-        <div style={{ padding: "12px 20px", display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {COLD_START_STORES.map((s) => (
-            <div key={s.id} className={`acs-coldstart-chip${s.id === activeColdStart.id ? " is-active" : ""}`}>
-              <Star size={10} />
-              <Text variant="micro" style={{ fontWeight: 600 }}>#{s.id} {s.name}</Text>
-              <Text variant="micro" tone="muted">{(s.sqft/1000).toFixed(0)}k sqft · {s.launch}</Text>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      {/* Tier governance */}
-      <Card sx={{ ...panelSx, padding: 0 }}>
-        <div className="acs-section-header">
-          <Text variant="body-strong" tone="strong">Automated Tier Governance — {activeColdStart.name}</Text>
-        </div>
-        <div style={{ padding: "12px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
-          {[
-            { tier: "Tier 1A — Store Structure",        status: "active",  label: `Matched to Structural Family ${activeColdStart.assignedFamily.split("-")[0]}` },
-            { tier: "Tier 1B — Market Context",         status: "active",  label: `Matched to Market Family ${activeColdStart.assignedFamily.split("-")[1]}` },
-            { tier: "Tier 2 — Commercial Performance",  status: "locked",  label: "0 Sales History — Borrowing Peer Velocity" },
-            { tier: "Tier 4 — Product Profile & Style", status: "locked",  label: "Borrowing Peer Aesthetic Demand" },
-          ].map((item) => (
-            <div key={item.tier} className={`acs-tier-row ${item.status}`}>
-              {item.status === "active"
-                ? <CheckCircle2 size={14} color={color.success} />
-                : <Lock size={14} color={color.warning} />}
-              <div style={{ flex: 1 }}>
-                <Text variant="caption" style={{ fontWeight: 700 }}>{item.tier}</Text>
-                <Text variant="micro" tone="muted" style={{ marginLeft: 4 }}>→ {item.label}</Text>
+              <div className="acs-metric-grid" style={{ padding: 16 }}>
+                {TIER2_METRICS.map((m) => (
+                  <MetricToggle key={m.key} metric={m} active={draft.tier2Metrics.includes(m.key)} onToggle={toggleMetric} />
+                ))}
               </div>
-              <Badge variant="subtle" size="small" color={item.status === "active" ? "success" : "warning"} label={item.status === "active" ? "ACTIVE" : "LOCKED"} />
-            </div>
-          ))}
-        </div>
-      </Card>
+            </Card>
+          </>
+        )}
+        configSummary={[draft.scopeL4, ...TIER2_METRICS.filter((m) => draft.tier2Metrics.includes(m.key)).map((m) => m.label)].filter(Boolean)}
+        selectedKeys={draft.tier2Metrics}
+        insightText={TIER2_AI_ALERT}
+        insightType="warning"
+      />
 
-      {/* Proxy matching */}
-      <Card sx={{ ...panelSx, padding: 0 }}>
-        <div className="acs-section-header">
-          <Text variant="body-strong" tone="strong">Dual-Anchor Proxy Match Scorecard</Text>
-          <Badge variant="subtle" size="small" color="neutral" label={activeColdStart.name} />
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <table className="acs-table">
-            <thead>
-              <tr>
-                <th>Twin Store</th><th>Store ID</th>
-                <th>Structural Match (Tier 1A)</th><th>Demographic Match (Tier 1B)</th>
-                <th>Distance (z-score)</th><th>Borrow Weight</th>
-              </tr>
-            </thead>
-            <tbody>
-              {PROXY_MATCHES.map((pm) => (
-                <tr key={pm.store}>
-                  <td><Text variant="caption" style={{ fontWeight: 700 }}>{pm.store}</Text></td>
-                  <td><Text variant="micro" mono tone="muted">#{pm.storeId}</Text></td>
-                  <td>
-                    <Stack direction="row" align="center" gap={2}>
-                      <Text variant="micro" mono style={{ fontWeight: 700 }}>{pm.structuralMatch}%</Text>
-                      <div className="acs-match-bar-wrap">
-                        <div className="acs-match-bar" style={{ width: `${pm.structuralMatch}%`, background: color.primary }} />
-                      </div>
-                    </Stack>
-                  </td>
-                  <td>
-                    <Stack direction="row" align="center" gap={2}>
-                      <Text variant="micro" mono style={{ fontWeight: 700 }}>{pm.demographicMatch}%</Text>
-                      <div className="acs-match-bar-wrap">
-                        <div className="acs-match-bar" style={{ width: `${pm.demographicMatch}%`, background: color.teal }} />
-                      </div>
-                    </Stack>
-                  </td>
-                  <td><Text variant="micro" mono>{pm.distance}σ</Text></td>
-                  <td>
-                    <Text variant="caption" style={{ fontWeight: 800, color: color.success }}>{pm.weight}%</Text>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      <AgentInsight text={COLD_START_AI_READ} type="info" />
-      <WizardFooter tierLabel="Cold-Start (Proxy-Only)" onFinalize={onFinalize} onProceed={onProceed} proceedLabel="Proceed to Step 5: Product Profile →" />
+      <WizardFooter tierLabel="Step 3 (Commercial Performance)" onFinalize={onFinalize} onProceed={onProceed} proceedLabel="Proceed to Step 4: Product Profile →" />
     </div>
   );
 }
@@ -2090,109 +2946,40 @@ function Step4_Tier4({ draft, setDraft, onFinalize, onProceed }) {
     return { ...d, tier4Metrics: metrics, useAgentTier4: false };
   });
 
-  const telemetry = TIER4_TELEMETRY["B-M3-1-P2"];
+  const configSummary = TIER4_METRICS.filter((m) => draft.tier4Metrics.includes(m.key)).map((m) => m.label);
+
+  const metricCard = (
+    <Card sx={{ ...panelSx, padding: 0 }}>
+      <div className="acs-section-header">
+        <Text variant="body-strong" tone="strong">Catalog Attributes</Text>
+      </div>
+      <div className="acs-metric-grid" style={{ padding: 16 }}>
+        {TIER4_METRICS.map((m) => (
+          <MetricToggle key={m.key} metric={m} active={draft.tier4Metrics.includes(m.key)} onToggle={toggleMetric} />
+        ))}
+      </div>
+    </Card>
+  );
 
   return (
     <div className="acs-wiz-step">
       <div className="acs-step-intro">
-        <div className="acs-step-badge" style={{ background: color.accent }}>Tier 4</div>
+        <div className="acs-step-badge" style={{ background: color.accent }}>Step 4</div>
         <Text variant="title" tone="strong">Product Profile &amp; Aesthetic Style Mix</Text>
         <Text variant="caption" tone="muted">Layer localized customer style preferences, finish types, species mix, and Good/Better/Best price positioning.</Text>
       </div>
 
-      {/* Metric selection */}
-      <Card sx={{ ...panelSx, padding: 0 }}>
-        <div className="acs-section-header">
-          <Text variant="body-strong" tone="strong">Catalog Attributes</Text>
-          <Stack direction="row" gap={2}>
-            <Button variant={draft.useAgentTier4 ? "primary" : "secondary"} size="small"
-              onClick={() => setDraft((d) => ({ ...d, useAgentTier4: true, tier4Metrics: TIER4_METRICS.filter((m) => m.recommended).map((m) => m.key) }))}>
-              🤖 Agent Recommended
-            </Button>
-            <Button variant={!draft.useAgentTier4 ? "primary" : "secondary"} size="small"
-              onClick={() => setDraft((d) => ({ ...d, useAgentTier4: false }))}>
-              ⚙️ Customize
-            </Button>
-          </Stack>
-        </div>
-        <div className="acs-metric-grid" style={{ padding: 16 }}>
-          {TIER4_METRICS.map((m) => (
-            <MetricToggle key={m.key} metric={m} active={draft.tier4Metrics.includes(m.key)} onToggle={toggleMetric} />
-          ))}
-        </div>
-      </Card>
+      <ClusterExplorer
+        tierKey="4"
+        tierLabel="Product Profile"
+        configCard={metricCard}
+        configSummary={configSummary}
+        selectedKeys={draft.tier4Metrics}
+        insightText="Wirebrushed Rustic Oak dominates the mid-tier profile at 64% share with the lowest style-mismatch risk. Premium smooth finishes carry higher ASP but skew Best-tier depth; value dark tones show elevated mismatch risk and warrant tighter localization."
+        insightType="info"
+      />
 
-      {/* Agent Telemetry strip */}
-      {telemetry && (
-        <div className="acs-t4-telemetry">
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <Cpu size={14} color="var(--color-primary-soft)" />
-            <Text variant="caption" style={{ color: "var(--color-primary-soft)", fontWeight: 800 }}>TIER 4 AGENT TELEMETRY — Cluster B-M3</Text>
-          </div>
-          <div className="acs-t4-kpis">
-            {[
-              { label: "Top Style",       value: telemetry.topStyle },
-              { label: "GBB Mix",         value: telemetry.gbbSummary },
-              { label: "ASP / SqFt",      value: telemetry.aspSqft },
-              { label: "Mismatch Risk",   value: telemetry.mismatchRisk },
-            ].map((kpi) => (
-              <div key={kpi.label} className="acs-t4-kpi">
-                <Text variant="micro" tone="subtle" style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 2, display: "block", fontSize: 9 }}>{kpi.label}</Text>
-                <Text variant="caption" style={{ fontWeight: 700, color: "#fff" }}>{kpi.value}</Text>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Style profiles */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
-        {TIER4_PROFILES.map((p) => (
-          <Card key={p.id} sx={{ ...panelSx, padding: 0 }}>
-            <div style={{ height: 3, background: LABEL_COLORS.style[p.id] || color.primary, borderRadius: "var(--r) var(--r) 0 0" }} />
-            <div style={{ padding: 14 }}>
-              <Stack direction="row" align="center" gap={2} style={{ marginBottom: 12 }}>
-                <span className="acs-family-badge" style={{ background: LABEL_COLORS.style[p.id] || color.primary }}>{p.id}</span>
-                <Text variant="caption" style={{ fontWeight: 700 }}>{p.label}</Text>
-              </Stack>
-
-              <Text variant="micro" tone="subtle" style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6, display: "block" }}>Finish Share</Text>
-              {Object.entries(p.finishShare).map(([finish, pct]) => (
-                <div key={finish} style={{ marginBottom: 5 }}>
-                  <Stack direction="row" justify="space-between" style={{ marginBottom: 2 }}>
-                    <Text variant="micro">{finish}</Text>
-                    <Text variant="micro" mono style={{ fontWeight: 700 }}>{pct}%</Text>
-                  </Stack>
-                  <div style={{ height: 4, background: "var(--color-surface-sunken)", borderRadius: 2, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${pct}%`, background: LABEL_COLORS.style[p.id] || color.primary, borderRadius: 2 }} />
-                  </div>
-                </div>
-              ))}
-
-              <Text variant="micro" tone="subtle" style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", margin: "12px 0 6px", display: "block" }}>GBB Mix</Text>
-              <div style={{ display: "flex", height: 10, borderRadius: 4, overflow: "hidden", gap: 1 }}>
-                {Object.entries(p.gbbMix).map(([tier, pct]) => {
-                  const gbbColors = { Good: color.info, Better: color.teal, Best: color.success };
-                  return <div key={tier} style={{ flex: pct, background: gbbColors[tier] || color.primary }} title={`${tier}: ${pct}%`} />;
-                })}
-              </div>
-              <Stack direction="row" justify="space-between" style={{ marginTop: 4 }}>
-                {Object.entries(p.gbbMix).map(([tier, pct]) => (
-                  <Text key={tier} variant="micro" tone="muted">{tier} {pct}%</Text>
-                ))}
-              </Stack>
-
-              <div style={{ marginTop: 12, padding: "6px 8px", background: p.mismatchRisk > 50 ? color.errorSoft : color.successSoft, borderRadius: 4 }}>
-                <Text variant="micro" style={{ color: p.mismatchRisk > 50 ? color.error : color.success, fontWeight: 700 }}>
-                  Style Mismatch Risk: {p.mismatchRisk}/100
-                </Text>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      <WizardFooter tierLabel="Tier 4 (Style Profile)" onFinalize={onFinalize} onProceed={onProceed} proceedLabel="⚡ Initialize Final Agentic Terminal Run" />
+      <WizardFooter tierLabel="Step 4 (Product Profile)" onFinalize={onFinalize} onProceed={onProceed} proceedLabel="Initialize Final Agentic Run →" />
     </div>
   );
 }
@@ -2201,11 +2988,11 @@ function SetupWizard({ onFinalize, onTerminal }) {
   const [step, setStep]   = useState(0);
   const [draft, setDraft] = useState({ ...STUDIO_WIZARD_DEFAULTS });
 
-  const STEP_LABELS = ["Store Structure", "Market Context", "Scope & Tier 2", "Cold-Start", "Product Profile"];
+  const STEP_LABELS = ["Store Structure", "Market Context", "Commercial Scope", "Product Profile"];
 
   const goFinalize = () => onFinalize();
   const goNext     = () => {
-    if (step < 4) setStep((s) => s + 1);
+    if (step < 3) setStep((s) => s + 1);
     else onTerminal();
   };
 
@@ -2225,8 +3012,7 @@ function SetupWizard({ onFinalize, onTerminal }) {
         {step === 0 && <Step0_Tier1A draft={draft} setDraft={setDraft} onFinalize={goFinalize} onProceed={goNext} />}
         {step === 1 && <Step1_Tier1B draft={draft} setDraft={setDraft} onFinalize={goFinalize} onProceed={goNext} />}
         {step === 2 && <Step2_ScopeAndTier2 draft={draft} setDraft={setDraft} onFinalize={goFinalize} onProceed={goNext} />}
-        {step === 3 && <Step3_ColdStart draft={draft} onFinalize={goFinalize} onProceed={goNext} />}
-        {step === 4 && <Step4_Tier4 draft={draft} setDraft={setDraft} onFinalize={goFinalize} onProceed={goNext} />}
+        {step === 3 && <Step4_Tier4 draft={draft} setDraft={setDraft} onFinalize={goFinalize} onProceed={goNext} />}
       </div>
     </div>
   );
@@ -2264,7 +3050,7 @@ function ExecutionTerminal({ onComplete }) {
         <div>
           <Text variant="heading" style={{ color: "#fff", fontWeight: 800 }}>Clustering Agent Execution Terminal</Text>
           <Text variant="micro" style={{ color: "#93C5FD", marginTop: 4, display: "block" }}>
-            Run ID: CR-019 · Multi-Tiered K-Medoids Distance Processing · Level 4: Solid Prefinished Wood
+            Run ID: CR-019 · Multi-Step K-Medoids Distance Processing · Level 4: Solid Prefinished Wood
           </Text>
         </div>
         {done && (
@@ -2304,17 +3090,68 @@ function ExecutionTerminal({ onComplete }) {
 
 // ─── SCREEN 5: Scenario Review ────────────────────────────────────────────────
 
+const SCENARIO_LOAD_STEPS = [
+  "Merging Step 1–4 cluster assignments",
+  "Scoring combined cluster DNA vs. enterprise average",
+  "Reconciling commercial risk & Open-To-Buy exposure",
+  "Compiling integrated label distribution",
+];
+
 function ScenarioReview({ onPromote }) {
   const [selected, setSelected] = useState("B");
   const [promoted, setPromoted] = useState(false);
+  const [phase, setPhase] = useState("loading");   // loading | ready
+  const [loadStep, setLoadStep] = useState(0);
+  const [clusterId, setClusterId] = useState(null); // selected cluster for the detail panel
+  const [panelOpen, setPanelOpen] = useState(false);
+
+  // "Loading the Final Cluster Mix" — staged loader before revealing the dashboard.
+  useEffect(() => {
+    const stepTimers = SCENARIO_LOAD_STEPS.map((_, i) =>
+      setTimeout(() => setLoadStep(i + 1), 480 * (i + 1))
+    );
+    const done = setTimeout(() => setPhase("ready"), 480 * SCENARIO_LOAD_STEPS.length + 700);
+    return () => { stepTimers.forEach(clearTimeout); clearTimeout(done); };
+  }, []);
 
   const riskBorder = { healthy: color.success, risk: color.warning, critical: color.error, coldstart: color.info };
   const riskLabel  = { healthy: "🟢 Healthy / Growth", risk: "🟡 At Risk", critical: "🔴 CRITICAL OVERBUY RISK", coldstart: "🟡 Cold-Start Protected" };
+
+  const openCluster = (id) => { setClusterId(id); setPanelOpen(true); };
 
   const handlePromote = () => {
     setPromoted(true);
     setTimeout(onPromote, 2200);
   };
+
+  if (phase === "loading") {
+    return (
+      <div className="acs-screen">
+        <div className="acs-final-load">
+          <div className="acs-final-load-card">
+            <div className="acs-final-load-ring"><Cpu size={26} /></div>
+            <Text variant="title" tone="strong" style={{ marginTop: 20, display: "block" }}>Loading the Final Cluster Mix</Text>
+            <Text variant="caption" tone="muted" style={{ marginTop: 6, display: "block", maxWidth: 420, marginInline: "auto" }}>
+              Assembling the combined multi-step segmentation into a single promotion-ready scenario set.
+            </Text>
+            <div className="acs-final-load-steps">
+              {SCENARIO_LOAD_STEPS.map((s, i) => {
+                const state = i < loadStep ? "done" : i === loadStep ? "active" : "pending";
+                return (
+                  <div key={s} className={`acs-final-load-step is-${state}`}>
+                    <span className="acs-final-load-step-ico">
+                      {state === "done" ? <CheckCircle2 size={14} /> : state === "active" ? <span className="acs-running-spinner sm" /> : <span className="acs-final-load-dot" />}
+                    </span>
+                    <span className="acs-final-load-step-txt">{s}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (promoted) {
     return (
@@ -2374,25 +3211,33 @@ function ScenarioReview({ onPromote }) {
       {/* Spider comparison */}
       <Card sx={{ ...panelSx, padding: 0 }}>
         <div className="acs-section-header">
-          <Text variant="body-strong" tone="strong">Combined Cluster DNA — Spider Profile View</Text>
-          <Text variant="micro" tone="muted">Cluster profile vs Enterprise Average</Text>
+          <div>
+            <Text variant="body-strong" tone="strong">Combined Cluster DNA — Spider Profile View</Text>
+            <Text variant="micro" tone="muted" style={{ marginTop: 2, display: "block" }}>Cluster profile vs enterprise average · click a card to inspect</Text>
+          </div>
+          <div className="acs-spider-legend">
+            <span className="acs-spider-legend-item"><span className="acs-spider-swatch solid" /> Cluster</span>
+            <span className="acs-spider-legend-item"><span className="acs-spider-swatch dash" /> Network Avg</span>
+          </div>
         </div>
         <div className="acs-spider-grid">
           {SCENARIO_FULL_CLUSTERS.map((cl) => (
-            <div key={cl.id} style={{ padding: "0 8px 8px" }}>
-              <Stack direction="row" align="center" gap={2} style={{ padding: "8px 0 0 8px", marginBottom: -8 }}>
+            <button key={cl.id} type="button" className="acs-spider-cell" onClick={() => openCluster(cl.id)}>
+              <span className="acs-spider-cell-head">
                 <LabelPill id={cl.id} size="sm" />
-                <Text variant="micro" tone="muted" style={{ fontSize: 10 }}>{cl.label}</Text>
+                <span className="acs-spider-cell-label">{cl.label}</span>
                 {cl.isProxy && <Badge variant="subtle" size="small" color="info" label="Proxy" />}
-              </Stack>
+              </span>
               <SpiderChart
                 axes={SPIDER_AXES}
                 values={cl.spiderAxes}
                 networkValues={NETWORK_AVG}
                 title={cl.id}
                 height={220}
+                showLegend={false}
               />
-            </div>
+              <span className="acs-spider-cell-cta">View details <ChevronRight size={12} /></span>
+            </button>
           ))}
         </div>
       </Card>
@@ -2402,11 +3247,12 @@ function ScenarioReview({ onPromote }) {
         <Text variant="body-strong" tone="strong" style={{ marginBottom: 14, display: "block" }}>Integrated Label Distribution</Text>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {SCENARIO_FULL_CLUSTERS.map((cl) => (
-            <div key={cl.id} className="acs-dist-row">
+            <div key={cl.id} className="acs-dist-row acs-dist-row-click" onClick={() => openCluster(cl.id)} role="button" tabIndex={0}>
               <LabelPill id={cl.id} size="sm" />
               <Text variant="micro" tone="muted" style={{ flex: 1, minWidth: 0 }}>{cl.label}</Text>
               <Text variant="micro" mono style={{ fontWeight: 700 }}>{cl.stores} {cl.stores === 1 ? "Store" : "Stores"}</Text>
               {cl.isProxy && <Badge variant="subtle" size="small" color="info" label="Cold-Start" />}
+              <ChevronRight size={13} className="acs-dist-row-chev" />
             </div>
           ))}
         </div>
@@ -2429,7 +3275,7 @@ function ScenarioReview({ onPromote }) {
             </thead>
             <tbody>
               {SCENARIO_FULL_CLUSTERS.map((cl) => (
-                <tr key={cl.id} style={{ borderLeft: `3px solid ${riskBorder[cl.riskStatus] || color.border}` }}>
+                <tr key={cl.id} className="acs-clx-row" style={{ borderLeft: `3px solid ${riskBorder[cl.riskStatus] || color.border}` }} onClick={() => openCluster(cl.id)}>
                   <td><LabelPill id={cl.id} size="sm" /></td>
                   <td><Text variant="micro" mono style={{ fontWeight: 700 }}>{cl.stores}</Text></td>
                   <td>
@@ -2506,7 +3352,114 @@ function ScenarioReview({ onPromote }) {
           🚀 Accept &amp; Promote Clusters to LIVE Production
         </Button>
       </div>
+
+      <ScenarioClusterPanel open={panelOpen} clusterId={clusterId} onClose={() => setPanelOpen(false)} />
     </div>
+  );
+}
+
+/** Slide-over detail panel for a scenario cluster (spider DNA, commercial KPIs, SKU actions). */
+function ScenarioClusterPanel({ open, clusterId, onClose }) {
+  const cl = SCENARIO_FULL_CLUSTERS.find((c) => c.id === clusterId);
+  const riskMeta = {
+    healthy:   { label: "Healthy / Growth",       color: "success" },
+    risk:      { label: "At Risk",                color: "warning" },
+    critical:  { label: "Critical Overbuy Risk",  color: "danger"  },
+    coldstart: { label: "Cold-Start Protected",   color: "info"    },
+  };
+  const accent = { healthy: color.success, risk: color.warning, critical: color.error, coldstart: color.info };
+  const skus = cl ? SKU_SCORECARD.filter((s) => s.cluster === cl.id) : [];
+  const actionColor = { ADD: color.success, DROP: color.error, FREEZE: color.warning };
+
+  const kpis = cl ? [
+    { label: "Stores",        value: cl.stores.toLocaleString() },
+    { label: "Sales / SqFt",  value: `$${cl.salesSqft}${cl.isProxy ? " (proj)" : ""}` },
+    { label: "Sell-Through",  value: `${cl.sellThrough}%${cl.isProxy ? " (proj)" : ""}` },
+    { label: "Days of Supply", value: `${cl.dos.toLocaleString()} d${cl.isProxy ? " (proj)" : ""}` },
+    { label: "GMROI",         value: `${cl.gmroi.toFixed(1)}${cl.isProxy ? " (proj)" : ""}` },
+    { label: "Aesthetic",     value: cl.aesthetic },
+  ] : [];
+
+  return (
+    <>
+      <div className={`acs-clx-panel-scrim${open ? " open" : ""}`} onClick={onClose} />
+      <aside className={`acs-clx-panel${open ? " open" : ""}`} role="dialog" aria-label="Cluster detail">
+        {cl && (
+          <>
+            <div className="acs-clx-panel-head" style={{ borderTopColor: accent[cl.riskStatus] || color.primary }}>
+              <div className="acs-clx-panel-title">
+                <LabelPill id={cl.id} size="sm" />
+                <div style={{ minWidth: 0 }}>
+                  <Text variant="body-strong" tone="strong" style={{ display: "block" }}>{cl.label}</Text>
+                  <Stack direction="row" align="center" gap={2} style={{ marginTop: 3 }}>
+                    <Badge variant="subtle" size="small" color={riskMeta[cl.riskStatus]?.color || "neutral"} label={riskMeta[cl.riskStatus]?.label || "—"} />
+                    {cl.isProxy && <Badge variant="subtle" size="small" color="info" label="Cold-Start Proxy" />}
+                  </Stack>
+                </div>
+              </div>
+              <button className="acs-clx-panel-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
+            </div>
+
+            <div className="acs-clx-panel-body">
+              {/* Commercial KPIs */}
+              <div className="acs-clx-panel-kpis">
+                {kpis.map((k) => (
+                  <div key={k.label} className="acs-clx-panel-kpi">
+                    <span className="acs-clx-panel-kpi-label">{k.label}</span>
+                    <span className="acs-clx-panel-kpi-val">{k.value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Cluster DNA spider */}
+              <div className="acs-scn-panel-section">
+                <Text variant="micro" tone="subtle" className="acs-scn-panel-eyebrow">Cluster DNA vs Network Average</Text>
+                <div className="acs-scn-panel-spider">
+                  <SpiderChart axes={SPIDER_AXES} values={cl.spiderAxes} networkValues={NETWORK_AVG} title={cl.id} height={260} showLegend />
+                </div>
+              </div>
+
+              {/* Axis breakdown */}
+              <div className="acs-scn-panel-section">
+                <Text variant="micro" tone="subtle" className="acs-scn-panel-eyebrow">Profile Signals</Text>
+                <div className="acs-scn-axis-list">
+                  {SPIDER_AXES.map((ax, i) => (
+                    <div key={ax} className="acs-scn-axis-row">
+                      <span className="acs-scn-axis-lbl">{ax}</span>
+                      <span className="acs-scn-axis-bar">
+                        <span className="acs-scn-axis-fill" style={{ width: `${cl.spiderAxes[i]}%`, background: accent[cl.riskStatus] || color.primary }} />
+                      </span>
+                      <span className="acs-scn-axis-val">{cl.spiderAxes[i]}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SKU actions */}
+              <div className="acs-scn-panel-section">
+                <Text variant="micro" tone="subtle" className="acs-scn-panel-eyebrow">Line Review — SKU Actions ({skus.length})</Text>
+                {skus.length === 0 ? (
+                  <div className="acs-scn-panel-empty">No SKU add / drop actions staged for this cluster.</div>
+                ) : (
+                  <div className="acs-scn-sku-list">
+                    {skus.map((s, i) => (
+                      <div key={i} className="acs-scn-sku-row">
+                        <span className="acs-action-badge" style={{ background: actionColor[s.action] || color.primary }}>{s.action}</span>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <Text variant="micro" style={{ fontWeight: 700, display: "block" }}>#{s.sku} · {s.description}</Text>
+                          <Text variant="micro" tone="muted" style={{ display: "block", marginTop: 2 }}>{s.attr}</Text>
+                          <Text variant="micro" tone="muted" style={{ display: "block", marginTop: 3, lineHeight: 1.5 }}>{s.rationale}</Text>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </aside>
+    </>
   );
 }
 
@@ -2532,7 +3485,9 @@ export default function AgenticClustering({ onNavigate }) {
   const handleScopeBack     = useCallback(() => setScreen("launcher"), []);
   const handleScopeLaunch   = useCallback(() => setScreen("wizard"), []);    // scope → wizard
   const handleFinalize      = useCallback(() => setScreen("dashboard"), []);
-  const handleTerminal      = useCallback(() => setScreen("terminal"), []);
+  // Final agentic run now flows straight into the "Loading the Final Cluster Mix"
+  // loader inside ScenarioReview (no standalone execution terminal step).
+  const handleTerminal      = useCallback(() => setScreen("review"), []);
   const handleReview        = useCallback(() => setScreen("review"), []);
   const handlePromote       = useCallback(() => setScreen("dashboard"), []);
 
